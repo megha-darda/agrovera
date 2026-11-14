@@ -26,6 +26,7 @@ import {
   YAxis,
 } from 'recharts';
 import heroKarlsruheUrl from '../assets/images/agrovera_karlsruhe_farmland_1794659995413.jpg';
+import { checkForecastSowingAlignment } from '../engine/weather.ts';
 import type {
   AgenticEvaluationResponse,
   AppLanguage,
@@ -37,9 +38,9 @@ import type {
 import {
   deriveDashboardState,
   formatClassificationLabel,
+  formatCropFeasibilityDetail,
   formatCropName,
   formatCurrency,
-  formatFeasibilityLabel,
   formatMonthName,
   formatNumber,
   formatPriorityLabel,
@@ -52,7 +53,9 @@ interface OverviewViewProps {
   weather: WeatherForecastAnalysis | null;
   simulation: SimulationRunOutput;
   evaluation: AgenticEvaluationResponse | null;
+  hasStaleEvaluation?: boolean;
   isEvaluating: boolean;
+  elapsedSeconds?: number;
   onRunEvaluation: () => void;
   onNavigate: (tab: NavigationTab) => void;
 }
@@ -62,7 +65,9 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   weather,
   simulation,
   evaluation,
+  hasStaleEvaluation = false,
   isEvaluating,
+  elapsedSeconds = 0,
   onRunEvaluation,
   onNavigate,
 }) => {
@@ -78,6 +83,11 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
     lang
   );
 
+  const weatherAlignment = checkForecastSowingAlignment(
+    weather,
+    farm.plantingMonth
+  );
+
   const chartData = simulation.cropResults.map((crop) => ({
     name: pickBilingual(crop.cropNames, lang),
     suitability: crop.scores.weightedSuitability,
@@ -90,6 +100,9 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   const scenarioLabel = pickBilingual(simulation.scenario.names, lang);
   const soilLabel = formatSoilName(farm.soilType, lang);
   const monthLabel = formatMonthName(farm.plantingMonth, lang);
+  const forecastMonthLabel = weatherAlignment.forecastStartMonth
+    ? formatMonthName(weatherAlignment.forecastStartMonth, lang)
+    : '';
 
   return (
     <div className="space-y-8">
@@ -159,6 +172,24 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                   className="font-semibold text-amber-950 underline cursor-pointer shrink-0"
                 >
                   {t('overview.regenerateInLang')}
+                </button>
+              </div>
+            )}
+
+            {/* Honest stale-parameters notice when farm or scenario inputs changed after an AI run */}
+            {!evaluation && hasStaleEvaluation && !isEvaluating && (
+              <div className="mt-4 p-3 rounded-lg bg-amber-50/90 border border-amber-200 text-xs text-amber-950 flex flex-wrap items-center justify-between gap-3">
+                <span className="flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-800 shrink-0" />
+                  {t('overview.staleParamsNotice')}
+                </span>
+                <button
+                  type="button"
+                  onClick={onRunEvaluation}
+                  disabled={isEvaluating}
+                  className="font-semibold text-amber-950 underline cursor-pointer shrink-0"
+                >
+                  {t('overview.rerunUpdatedBtn')}
                 </button>
               </div>
             )}
@@ -282,6 +313,28 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         </div>
       </section>
 
+      {/* Truthful Progress Banner during Gemini Analysis */}
+      {isEvaluating && (
+        <section
+          role="status"
+          className="bg-[#F2F7F4] border border-[#CDE0D4] rounded-xl p-4 flex flex-wrap items-center justify-between gap-3 text-xs font-semibold text-[#0F291E]"
+        >
+          <span className="flex items-center gap-2">
+            <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-700 animate-ping" />
+            {elapsedSeconds < 3
+              ? t('progress.planStage1')
+              : elapsedSeconds < 7
+                ? t('progress.planStage2')
+                : elapsedSeconds < 14
+                  ? t('progress.planStage3')
+                  : t('progress.planStage4')}
+          </span>
+          <span className="font-mono tabular-nums text-stone-600">
+            {t('progress.elapsed', { sec: elapsedSeconds })}
+          </span>
+        </section>
+      )}
+
       {/* AI Error Banner if model or API key failed */}
       {evaluation?.aiError && (
         <section
@@ -335,24 +388,40 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
           {topCrop ? (
             <>
               <div>
-                <div className="flex items-center justify-between gap-4 mb-2">
+                <div className="flex flex-wrap items-center justify-between gap-4 mb-2">
                   <div className="text-xs text-stone-500">
-                    {t('overview.topFeasibleHeader')} ·{' '}
-                    {pickBilingual(topCrop.category, lang)} ·{' '}
+                    {topCrop.feasibilityStatus === 'feasible'
+                      ? t('overview.topFeasibleHeader')
+                      : t('overview.topPreliminaryHeader')}{' '}
+                    · {pickBilingual(topCrop.category, lang)} ·{' '}
                     {formatClassificationLabel(
                       topCrop.financialEvaluation.yieldClassification,
                       lang
                     )}{' '}
                     (Destatis)
                   </div>
-                  <div className="text-xs font-mono tabular-nums font-semibold text-emerald-800">
-                    {t('overview.suitabilityScore', {
-                      score: formatNumber(
-                        topCrop.scores.weightedSuitability,
-                        lang,
-                        1
-                      ),
-                    })}
+                  <div className="flex items-center gap-2 text-xs font-mono tabular-nums font-semibold">
+                    <span
+                      className={
+                        topCrop.feasibilityStatus === 'feasible'
+                          ? 'text-emerald-800'
+                          : 'text-amber-700'
+                      }
+                    >
+                      {formatCropFeasibilityDetail(topCrop, lang)}
+                    </span>
+                    <span className="text-stone-400" aria-hidden="true">
+                      ·
+                    </span>
+                    <span className="text-emerald-800">
+                      {t('overview.suitabilityScore', {
+                        score: formatNumber(
+                          topCrop.scores.weightedSuitability,
+                          lang,
+                          1
+                        ),
+                      })}
+                    </span>
                   </div>
                 </div>
 
@@ -505,12 +574,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                                     : 'text-red-700'
                               }`}
                             >
-                              {alt.feasibilityStatus === 'infeasible'
-                                ? t('common.infeasibleConstraint')
-                                : formatFeasibilityLabel(
-                                    alt.feasibilityStatus,
-                                    lang
-                                  )}
+                              {formatCropFeasibilityDetail(alt, lang)}
                             </span>
                             {firstReason && (
                               <p className="text-xs text-red-700 mt-0.5 max-w-xl">
@@ -620,7 +684,9 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
               <CloudRain className="w-4 h-4 text-stone-400" />
             </div>
             <h2 className="text-lg font-bold text-[#0F291E] mb-1">
-              {t('overview.climateCardTitle')}
+              {weather?.status === 'ok' && !weatherAlignment.aligned
+                ? t('overview.currentWeatherTitle', { month: monthLabel })
+                : t('overview.climateCardTitle')}
             </h2>
 
             {weather &&
@@ -635,6 +701,15 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                     days: weather.forecastPeriod.days,
                   })}
                 </div>
+
+                {!weatherAlignment.aligned && forecastMonthLabel && (
+                  <div className="p-2.5 rounded-lg bg-amber-50/90 border border-amber-200 text-[11px] text-amber-950 leading-snug">
+                    {t('overview.seasonalWeatherMismatchNote', {
+                      forecastMonth: forecastMonthLabel,
+                      sowingMonth: monthLabel,
+                    })}
+                  </div>
+                )}
 
                 <div className="grid grid-cols-3 gap-3 py-3 border-y border-stone-100">
                   <div>
@@ -802,7 +877,13 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                 {chartData.map((entry, idx) => (
                   <Cell
                     key={`suit-${idx}`}
-                    fill={entry.feasible ? '#059669' : '#A8A29E'}
+                    fill={
+                      entry.status === 'feasible'
+                        ? '#059669'
+                        : entry.status === 'uncertain'
+                          ? '#0D9488'
+                          : '#A8A29E'
+                    }
                   />
                 ))}
               </Bar>

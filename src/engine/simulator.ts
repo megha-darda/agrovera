@@ -5,6 +5,7 @@ import {
   PRIORITY_WEIGHT_PRESETS,
   resolveScenarioConfig,
 } from './presets.ts';
+import { checkForecastSowingAlignment } from './weather.ts';
 import type {
   BilingualText,
   ClimateScenarioConfig,
@@ -245,9 +246,17 @@ function evaluateSingleCrop(
       ? Math.round(Math.max(0, farm.availableWaterValue))
       : convertMmPerHaToTotalM3(availableIrrigationMmHa, farm.areaHa);
 
-  // Strictly separate short-term seedbed forecast moisture (capped <= 12 mm, never extrapolated to full season!)
+  const weatherAlignment = checkForecastSowingAlignment(
+    weather,
+    farm.plantingMonth
+  );
+  const useNearTermSowingWeather =
+    Boolean(weather && weather.status === 'ok' && weather.summary) &&
+    weatherAlignment.aligned;
+
+  // Strictly separate short-term seedbed forecast moisture (only applied when forecast covers the planned sowing month!)
   const nearTermSeedbedPrecipCreditMmHa =
-    weather && weather.status === 'ok' && weather.summary
+    useNearTermSowingWeather && weather?.summary
       ? Number(Math.min(12, weather.summary.totalPrecipMm * 0.35).toFixed(1))
       : 0;
 
@@ -299,7 +308,7 @@ function evaluateSingleCrop(
 
   const uncontrolledSeasonRainMmHa =
     estimatedEffectiveSeasonRainMmHa +
-    (weather?.status === 'ok' && weather.summary
+    (useNearTermSowingWeather && weather?.summary
       ? weather.summary.totalPrecipMm
       : 0);
 
@@ -346,7 +355,7 @@ function evaluateSingleCrop(
   let nearTermDrySignal = 0;
   let nearTermRainSignal = 0;
 
-  if (weather && weather.status === 'ok' && weather.summary) {
+  if (useNearTermSowingWeather && weather && weather.summary) {
     if (
       weather.summary.peakMaxTempC >=
       crop.climateSensitivity.heatStressThresholdC
@@ -549,28 +558,22 @@ function evaluateSingleCrop(
 
   const expectedNetProfitPerHaEur =
     farm.areaHa > 0 ? netProfitExpected / exchangeRate / farm.areaHa : 0;
-  const profitPotential = Math.round(
-    clamp(
-      maxExpectedProfitAcrossCropsPerHaEur > 0
-        ? (Math.max(0, expectedNetProfitPerHaEur) /
-            maxExpectedProfitAcrossCropsPerHaEur) *
-            100
-        : 50,
+  let profitPotential = 0;
+  if (expectedNetProfitPerHaEur > 0) {
+    const marginScore = clamp(
+      (Math.log1p(expectedNetProfitPerHaEur / 250) /
+        Math.log1p(Math.max(1500, maxExpectedProfitAcrossCropsPerHaEur) / 250)) *
+        100,
       0,
       100
-    )
-  );
+    );
+    const roiScore = clamp((expectedRoiPct / 140) * 100, 0, 100);
+    profitPotential = Math.round(
+      clamp(marginScore * 0.55 + roiScore * 0.45, 0, 100)
+    );
+  }
 
-  const preferredCropBonus = farm.preferredCrop === crop.id ? 3 : 0;
-
-  const rawWeighted =
-    weights.profit * profitPotential +
-    weights.climateResilience * climateResilience +
-    weights.waterEfficiency * waterEfficiency +
-    weights.soilMatch * soilCompatibility +
-    preferredCropBonus;
-
-  const weightedSuitability = Number(clamp(rawWeighted, 0, 100).toFixed(1));
+  const preferredCropBonus = 0;
 
   // Hard constraints check (Seasonal Planting Window + Irrigation m³ + Budget € + Soil Viability)
   const infeasibilityReasonsBilingual: BilingualText[] = [];
@@ -609,6 +612,24 @@ function evaluateSingleCrop(
       de: `Ungeeigneter Boden: Die Bodeneignung (${soilCompatibility}/100) liegt unter dem pflanzenbaulichen Mindestwert (40/100).`,
     });
   }
+
+  const baseWeighted =
+    weights.profit * profitPotential +
+    weights.climateResilience * climateResilience +
+    weights.waterEfficiency * waterEfficiency +
+    weights.soilMatch * soilCompatibility;
+
+  let adjustedWeighted = baseWeighted;
+  if (infeasibilityReasonsBilingual.length > 0) {
+    adjustedWeighted =
+      seasonalSuitability === 'out_of_season'
+        ? Math.min(42, baseWeighted * 0.45)
+        : Math.min(48, baseWeighted * 0.58);
+  } else if (seasonalSuitability === 'shoulder') {
+    adjustedWeighted = baseWeighted * 0.93;
+  }
+
+  const weightedSuitability = Number(clamp(adjustedWeighted, 0, 100).toFixed(1));
 
   const infeasibilityReasons = infeasibilityReasonsBilingual.map((r) => r.en);
 
@@ -810,7 +831,12 @@ export function simulateCrops(
     const orderDiff =
       statusOrder[a.feasibilityStatus] - statusOrder[b.feasibilityStatus];
     if (orderDiff !== 0) return orderDiff;
-    return b.scores.weightedSuitability - a.scores.weightedSuitability;
+    const scoreDiff =
+      b.scores.weightedSuitability - a.scores.weightedSuitability;
+    if (scoreDiff !== 0) return scoreDiff;
+    const aPref = a.cropId === farm.preferredCrop ? 1 : 0;
+    const bPref = b.cropId === farm.preferredCrop ? 1 : 0;
+    return bPref - aPref;
   });
 
   const feasibleCrops = cropResults.filter(

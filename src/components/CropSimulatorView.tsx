@@ -16,8 +16,8 @@ import type {
   SimulationRunOutput,
 } from '../types/domain.ts';
 import {
+  formatCropFeasibilityDetail,
   formatCurrency,
-  formatFeasibilityLabel,
   formatMonthName,
   formatNumber,
   formatRiskLevelLabel,
@@ -238,7 +238,7 @@ export const CropSimulatorView: React.FC<CropSimulatorViewProps> = ({
                     ) : (
                       <XCircle className="w-3.5 h-3.5" />
                     )}
-                    {formatFeasibilityLabel(crop.feasibilityStatus, lang)}
+                    {formatCropFeasibilityDetail(crop, lang)}
                   </span>
                 </div>
 
@@ -536,7 +536,7 @@ export const CropSimulatorView: React.FC<CropSimulatorViewProps> = ({
                               : 'text-red-700'
                         }`}
                       >
-                        {formatFeasibilityLabel(row.feasibilityStatus, lang)}
+                        {formatCropFeasibilityDetail(row, lang)}
                       </span>
                     </td>
                     <td className="py-3 px-3 text-right font-mono tabular-nums font-semibold text-stone-900">

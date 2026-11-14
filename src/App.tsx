@@ -1,14 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity,
   BookOpen,
+  CalendarClock,
   CloudSun,
   Cpu,
   GitBranch,
   LayoutDashboard,
   Menu,
-  Play,
   Sliders,
+  Sprout,
   Tractor,
   X,
 } from 'lucide-react';
@@ -19,20 +19,26 @@ import { CropSimulatorView } from './components/CropSimulatorView.tsx';
 import { DataSourcesView } from './components/DataSourcesView.tsx';
 import { DecisionCenterView } from './components/DecisionCenterView.tsx';
 import { FarmSetupView } from './components/FarmSetupView.tsx';
+import { InSeasonCareView } from './components/InSeasonCareView.tsx';
 import { OverviewView } from './components/OverviewView.tsx';
 import { ScenarioAnalysisView } from './components/ScenarioAnalysisView.tsx';
+import { DEFAULT_IN_SEASON_INPUTS } from './engine/inSeasonCare.ts';
 import {
   DEFAULT_SAMPLE_FARM,
   DEFAULT_WEATHER_THRESHOLDS,
-  PRIORITY_WEIGHT_PRESETS,
 } from './engine/presets.ts';
-import { simulateCrops, validateFarmProfile } from './engine/simulator.ts';
+import {
+  normalizePreferenceWeights,
+  simulateCrops,
+  validateFarmProfile,
+} from './engine/simulator.ts';
 import { parseOpenMeteoForecast } from './engine/weather.ts';
 import { setAppLanguage } from './i18n/index.ts';
 import {
   fetchLiveWeatherForecast,
   fetchServerConfigStatus,
   runFullAgenticEvaluation,
+  runInSeasonAgenticEvaluation,
   type ServerConfigStatus,
 } from './services/apiClient.ts';
 import type {
@@ -40,7 +46,10 @@ import type {
   AppLanguage,
   BaselineReferenceContext,
   ClimateScenarioId,
+  FarmerMode,
   FarmProfile,
+  InSeasonCareInputs,
+  InSeasonEvaluationResponse,
   NavigationTab,
   PreferenceWeights,
   PriorityMode,
@@ -54,7 +63,8 @@ import { formatSoilName } from './utils/formatters.ts';
 function buildParamSignature(
   farm: FarmProfile,
   scenarioId: ClimateScenarioId,
-  scenarioOverride?: ScenarioParametersOverride
+  scenarioOverride?: ScenarioParametersOverride,
+  weatherThresholds?: WeatherThresholds
 ): string {
   return JSON.stringify({
     loc: farm.locationName,
@@ -69,9 +79,34 @@ function buildParamSignature(
     pref: farm.preferredCrop,
     month: farm.plantingMonth,
     prio: farm.priorityMode,
-    weights: farm.customWeights ?? null,
+    weights: normalizePreferenceWeights(farm),
     scen: scenarioId,
     over: scenarioOverride ?? null,
+    thresh: weatherThresholds ?? null,
+  });
+}
+
+function buildInSeasonSignature(
+  farm: FarmProfile,
+  inputs: InSeasonCareInputs,
+  weatherThresholds?: WeatherThresholds
+): string {
+  return JSON.stringify({
+    loc: farm.locationName,
+    lat: farm.latitude,
+    lon: farm.longitude,
+    soil: farm.soilType,
+    area: farm.areaHa,
+    waterVal: farm.availableWaterValue,
+    waterUnit: farm.availableWaterUnit,
+    budget: farm.budgetAmount,
+    curr: farm.currency,
+    crop: inputs.plantedCropId,
+    plantDate: inputs.plantingDate,
+    stage: inputs.growthStage,
+    usedM3: inputs.irrigationUsedM3,
+    notes: inputs.conditionNotes.trim(),
+    thresh: weatherThresholds ?? null,
   });
 }
 
@@ -79,10 +114,14 @@ export default function App() {
   const { t, i18n } = useTranslation();
   const lang: AppLanguage = i18n.language === 'de' ? 'de' : 'en';
 
+  const [farmerMode, setFarmerMode] = useState<FarmerMode>('plan_season');
   const [activeTab, setActiveTab] = useState<NavigationTab>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const [farm, setFarm] = useState<FarmProfile>(DEFAULT_SAMPLE_FARM);
+  const [inSeasonInputs, setInSeasonInputs] = useState<InSeasonCareInputs>(
+    DEFAULT_IN_SEASON_INPUTS
+  );
   const [scenarioId, setScenarioId] = useState<ClimateScenarioId>('baseline');
   const [scenarioOverrides, setScenarioOverrides] = useState<
     Partial<Record<ClimateScenarioId, ScenarioParametersOverride>>
@@ -94,8 +133,7 @@ export default function App() {
   const [weather, setWeather] = useState<WeatherForecastAnalysis | null>(null);
   const [isFetchingWeather, setIsFetchingWeather] = useState(false);
 
-  // Cache agentic evaluations by (paramSignature + language) so EN <-> DE never mislabels cached text
-  // while immediately restoring localized AI runs if already executed for that language.
+  // Plan-Season AI cache keyed by (paramSignature + language) — never displays stale recommendations
   const [evaluationCache, setEvaluationCache] = useState<
     Record<string, AgenticEvaluationResponse>
   >({});
@@ -103,11 +141,37 @@ export default function App() {
     null
   );
 
+  // In-Season Care AI cache keyed by (inSeasonSignature + language) — never displays stale advice
+  const [inSeasonEvalCache, setInSeasonEvalCache] = useState<
+    Record<string, InSeasonEvaluationResponse>
+  >({});
+  const [latestInSeasonKey, setLatestInSeasonKey] = useState<string | null>(
+    null
+  );
+
+  // In-flight lock preventing duplicate concurrent Gemini requests
+  const geminiInFlightRef = useRef(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
+  const [isEvaluatingInSeason, setIsEvaluatingInSeason] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
   const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [configStatus, setConfigStatus] = useState<ServerConfigStatus | null>(
     null
   );
+
+  // Truthful elapsed timer while any Gemini analysis is running
+  useEffect(() => {
+    if (!isEvaluating && !isEvaluatingInSeason) {
+      setElapsedSeconds(0);
+      return;
+    }
+    setElapsedSeconds(0);
+    const id = window.setInterval(() => {
+      setElapsedSeconds((prev) => prev + 1);
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [isEvaluating, isEvaluatingInSeason]);
 
   const activeScenarioOverride = scenarioOverrides[scenarioId];
 
@@ -118,22 +182,52 @@ export default function App() {
   );
 
   const currentSig = useMemo(
-    () => buildParamSignature(farm, scenarioId, activeScenarioOverride),
-    [farm, scenarioId, activeScenarioOverride]
+    () =>
+      buildParamSignature(
+        farm,
+        scenarioId,
+        activeScenarioOverride,
+        weatherThresholds
+      ),
+    [farm, scenarioId, activeScenarioOverride, weatherThresholds]
   );
 
-  // Prefer exact (sig, lang) evaluation; otherwise fall back to (sig, otherLang) so DecisionCenter can honestly show the stale-language banner; otherwise latestEvaluationKey
   const evaluation: AgenticEvaluationResponse | null = useMemo(() => {
     const exactKey = `${currentSig}::${lang}`;
     if (evaluationCache[exactKey]) return evaluationCache[exactKey];
     const otherLang: AppLanguage = lang === 'de' ? 'en' : 'de';
     const altKey = `${currentSig}::${otherLang}`;
     if (evaluationCache[altKey]) return evaluationCache[altKey];
+    return null;
+  }, [currentSig, evaluationCache, lang]);
+
+  const staleEvaluation: AgenticEvaluationResponse | null = useMemo(() => {
+    if (evaluation) return null;
     if (latestEvaluationKey && evaluationCache[latestEvaluationKey]) {
       return evaluationCache[latestEvaluationKey];
     }
     return null;
-  }, [currentSig, evaluationCache, lang, latestEvaluationKey]);
+  }, [evaluation, evaluationCache, latestEvaluationKey]);
+
+  const currentInSeasonSig = useMemo(
+    () => buildInSeasonSignature(farm, inSeasonInputs, weatherThresholds),
+    [farm, inSeasonInputs, weatherThresholds]
+  );
+
+  const inSeasonEvaluation: InSeasonEvaluationResponse | null = useMemo(() => {
+    const exactKey = `${currentInSeasonSig}::${lang}`;
+    if (inSeasonEvalCache[exactKey]) return inSeasonEvalCache[exactKey];
+    const otherLang: AppLanguage = lang === 'de' ? 'en' : 'de';
+    const altKey = `${currentInSeasonSig}::${otherLang}`;
+    if (inSeasonEvalCache[altKey]) return inSeasonEvalCache[altKey];
+    return null;
+  }, [currentInSeasonSig, inSeasonEvalCache, lang]);
+
+  const hasStaleInSeasonEvaluation = Boolean(
+    !inSeasonEvaluation &&
+      latestInSeasonKey &&
+      inSeasonEvalCache[latestInSeasonKey]
+  );
 
   // Baseline reference snapshot for side-by-side Scenario Analysis comparison
   const [baselineSnapshot, setBaselineSnapshot] = useState<{
@@ -237,6 +331,10 @@ export default function App() {
       targetLang: AppLanguage = lang,
       targetOverride?: ScenarioParametersOverride
     ) => {
+      if (geminiInFlightRef.current) {
+        return;
+      }
+
       const check = validateFarmProfile(targetFarm);
       if (!check.valid) {
         setPipelineError(
@@ -249,6 +347,7 @@ export default function App() {
         return;
       }
 
+      geminiInFlightRef.current = true;
       setIsEvaluating(true);
       setPipelineError(null);
 
@@ -292,7 +391,8 @@ export default function App() {
         const sig = buildParamSignature(
           targetFarm,
           targetScenario,
-          targetOverride
+          targetOverride,
+          weatherThresholds
         );
         const cacheKey = `${sig}::${targetLang}`;
         setEvaluationCache((prev) => ({
@@ -320,17 +420,64 @@ export default function App() {
             : 'Agentic evaluation request failed.'
         );
       } finally {
+        geminiInFlightRef.current = false;
         setIsEvaluating(false);
       }
     },
     [baselineSnapshot, lang, weatherThresholds]
   );
 
+  const executeInSeasonPipeline = useCallback(async () => {
+    if (geminiInFlightRef.current) {
+      return;
+    }
+
+    geminiInFlightRef.current = true;
+    setIsEvaluatingInSeason(true);
+    setPipelineError(null);
+
+    try {
+      const result = await runInSeasonAgenticEvaluation({
+        farm,
+        inputs: inSeasonInputs,
+        weatherThresholds,
+        language: lang,
+      });
+      if (result.weather?.status === 'ok') {
+        setWeather(result.weather);
+      }
+
+      const sig = buildInSeasonSignature(farm, inSeasonInputs, weatherThresholds);
+      const cacheKey = `${sig}::${lang}`;
+      setInSeasonEvalCache((prev) => ({
+        ...prev,
+        [cacheKey]: result,
+      }));
+      setLatestInSeasonKey(cacheKey);
+    } catch (err) {
+      setPipelineError(
+        err instanceof Error
+          ? err.message
+          : 'In-season AI evaluation request failed.'
+      );
+    } finally {
+      geminiInFlightRef.current = false;
+      setIsEvaluatingInSeason(false);
+    }
+  }, [farm, inSeasonInputs, lang, weatherThresholds]);
+
   const handleUpdateFarm = (updated: FarmProfile) => {
     const coordsChanged =
       updated.latitude !== farm.latitude ||
       updated.longitude !== farm.longitude;
     setFarm(updated);
+    const weatherForSnap = coordsChanged ? null : weather;
+    setBaselineSnapshot({
+      farm: updated,
+      scenarioId: 'baseline',
+      simulation: simulateCrops(updated, weatherForSnap, 'baseline'),
+      evaluation: null,
+    });
     if (coordsChanged) {
       void refreshWeather(updated, weatherThresholds);
     }
@@ -343,14 +490,13 @@ export default function App() {
     setFarm((prev) => ({
       ...prev,
       priorityMode: mode ?? prev.priorityMode,
-      customWeights: mode ? undefined : weights,
+      customWeights: mode ? null : weights,
     }));
   };
 
-  const handleSelectScenarioAndEvaluate = (nextScenario: ClimateScenarioId) => {
+  // Selecting climate scenarios updates deterministic state ONLY — never auto-starts Gemini
+  const handleSelectScenario = (nextScenario: ClimateScenarioId) => {
     setScenarioId(nextScenario);
-    const nextOverride = scenarioOverrides[nextScenario];
-    void executePipeline(farm, nextScenario, true, lang, nextOverride);
   };
 
   const handleUpdateScenarioOverride = (
@@ -378,9 +524,7 @@ export default function App() {
         updates.availableWaterValue ?? prev.availableWaterValue,
       budgetAmount: updates.budgetAmount ?? prev.budgetAmount,
       priorityMode: updates.priorityMode ?? prev.priorityMode,
-      customWeights: updates.priorityMode
-        ? PRIORITY_WEIGHT_PRESETS[updates.priorityMode]
-        : prev.customWeights,
+      customWeights: updates.priorityMode ? null : prev.customWeights,
     }));
   };
 
@@ -408,7 +552,10 @@ export default function App() {
   ];
 
   const activeNavLabel =
-    navItems.find((item) => item.id === activeTab)?.label ?? t('nav.overview');
+    farmerMode === 'in_season'
+      ? t('modes.inSeason')
+      : (navItems.find((item) => item.id === activeTab)?.label ??
+        t('nav.overview'));
 
   return (
     <div className="min-h-screen flex bg-[#F8F9F7] text-[#111C16]">
@@ -417,7 +564,10 @@ export default function App() {
         <div className="px-6 py-5 border-b border-[#1D4232]">
           <button
             type="button"
-            onClick={() => setActiveTab('overview')}
+            onClick={() => {
+              setFarmerMode('plan_season');
+              setActiveTab('overview');
+            }}
             className="text-left cursor-pointer w-full"
           >
             <AgroVeraLogo tagline={t('brand.tagline')} theme="dark" />
@@ -430,12 +580,16 @@ export default function App() {
         >
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = activeTab === item.id;
+            const isActive =
+              farmerMode === 'plan_season' && activeTab === item.id;
             return (
               <button
                 key={item.id}
                 type="button"
-                onClick={() => setActiveTab(item.id)}
+                onClick={() => {
+                  setFarmerMode('plan_season');
+                  setActiveTab(item.id);
+                }}
                 aria-current={isActive ? 'page' : undefined}
                 className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap cursor-pointer ${
                   isActive
@@ -450,21 +604,22 @@ export default function App() {
           })}
         </nav>
 
-        <div className="p-4 m-3 rounded-lg bg-[#153628] border border-[#224E3B] text-xs space-y-1.5">
-          <div className="font-semibold text-emerald-200">
+        {/* Collapsible Technical Model Information */}
+        <details className="m-3 rounded-lg bg-[#153628] border border-[#224E3B] text-xs p-3.5">
+          <summary className="font-semibold text-emerald-200 cursor-pointer select-none">
             {t('header.activeModels')}
-          </div>
-          <div className="text-[11px] text-[#C6D6CD] font-mono space-y-0.5">
+          </summary>
+          <div className="mt-2 text-[11px] text-[#C6D6CD] font-mono space-y-0.5">
             <div>{t('header.decisionModel')}</div>
             <div>{t('header.criticModel')}</div>
             <div>{t('header.toolsModel')}</div>
           </div>
           {configStatus && !configStatus.geminiKeyConfigured && (
-            <div className="text-[11px] text-amber-300 pt-1">
+            <div className="text-[11px] text-amber-300 pt-1.5">
               {t('header.missingApiKey')}
             </div>
           )}
-        </div>
+        </details>
       </aside>
 
       {/* Mobile Navigation Drawer */}
@@ -491,12 +646,14 @@ export default function App() {
               <nav aria-label={t('nav.mobileAria')} className="mt-4 space-y-1">
                 {navItems.map((item) => {
                   const Icon = item.icon;
-                  const active = activeTab === item.id;
+                  const active =
+                    farmerMode === 'plan_season' && activeTab === item.id;
                   return (
                     <button
                       key={item.id}
                       type="button"
                       onClick={() => {
+                        setFarmerMode('plan_season');
                         setActiveTab(item.id);
                         setMobileMenuOpen(false);
                       }}
@@ -522,8 +679,8 @@ export default function App() {
 
       {/* Main Workspace Canvas */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Top Bar: Breadcrumb on Left, EN | DE Switcher + Primary CTA on Right */}
-        <header className="h-14 px-4 sm:px-8 bg-white border-b border-stone-200/90 flex items-center justify-between gap-4 sticky top-0 z-30">
+        {/* Top Bar: Breadcrumb + Farmer Mode Switch + Bilingual EN | DE Switcher (No duplicate primary CTA) */}
+        <header className="min-h-14 py-2 px-4 sm:px-8 bg-white border-b border-stone-200/90 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-30">
           <div className="flex items-center gap-3 min-w-0">
             <button
               type="button"
@@ -541,17 +698,52 @@ export default function App() {
               <span className="font-medium text-stone-900 whitespace-nowrap">
                 {activeNavLabel}
               </span>
-              <span className="hidden md:inline" aria-hidden="true">
+              <span className="hidden xl:inline" aria-hidden="true">
                 ·
               </span>
-              <span className="hidden md:inline text-xs text-stone-500 truncate">
+              <span className="hidden xl:inline text-xs text-stone-500 truncate">
                 {farm.locationName} ({farm.areaHa} ha{' '}
                 {formatSoilName(farm.soilType, lang)})
               </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 shrink-0">
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            {/* Two Farmer Modes Switch: Plan Next Season | In-Season Care */}
+            <div
+              role="group"
+              aria-label={t('modes.switcherAria')}
+              data-testid="farmer-mode-switcher"
+              className="inline-flex items-center rounded-lg border border-stone-200 bg-stone-100 p-0.5 text-xs font-semibold"
+            >
+              <button
+                type="button"
+                onClick={() => setFarmerMode('plan_season')}
+                aria-pressed={farmerMode === 'plan_season'}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                  farmerMode === 'plan_season'
+                    ? 'bg-[#0F291E] text-white shadow-xs'
+                    : 'text-stone-700 hover:text-stone-950'
+                }`}
+              >
+                <CalendarClock className="w-3.5 h-3.5 shrink-0" />
+                <span>{t('modes.planSeason')}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setFarmerMode('in_season')}
+                aria-pressed={farmerMode === 'in_season'}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                  farmerMode === 'in_season'
+                    ? 'bg-[#0F291E] text-white shadow-xs'
+                    : 'text-stone-700 hover:text-stone-950'
+                }`}
+              >
+                <Sprout className="w-3.5 h-3.5 shrink-0" />
+                <span>{t('modes.inSeason')}</span>
+              </button>
+            </div>
+
             {/* Bilingual EN | DE Switcher */}
             <div
               role="group"
@@ -563,7 +755,7 @@ export default function App() {
                 type="button"
                 onClick={() => setAppLanguage('en')}
                 aria-pressed={lang === 'en'}
-                className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                className={`px-2.5 py-1.5 rounded-md transition-colors cursor-pointer ${
                   lang === 'en'
                     ? 'bg-white text-[#0F291E] shadow-xs'
                     : 'text-stone-600 hover:text-stone-900'
@@ -575,7 +767,7 @@ export default function App() {
                 type="button"
                 onClick={() => setAppLanguage('de')}
                 aria-pressed={lang === 'de'}
-                className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                className={`px-2.5 py-1.5 rounded-md transition-colors cursor-pointer ${
                   lang === 'de'
                     ? 'bg-white text-[#0F291E] shadow-xs'
                     : 'text-stone-600 hover:text-stone-900'
@@ -584,28 +776,6 @@ export default function App() {
                 DE
               </button>
             </div>
-
-            <button
-              type="button"
-              onClick={() =>
-                executePipeline(
-                  farm,
-                  scenarioId,
-                  activeTab === 'scenarios' || evaluation !== null,
-                  lang,
-                  activeScenarioOverride
-                )
-              }
-              disabled={isEvaluating}
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-[#059669] hover:bg-[#047857] disabled:opacity-60 text-white text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              {isEvaluating ? (
-                <Activity className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Play className="w-3.5 h-3.5" />
-              )}
-              {isEvaluating ? t('header.evaluating') : t('header.runAnalysis')}
-            </button>
           </div>
         </header>
 
@@ -630,108 +800,138 @@ export default function App() {
 
         {/* Active View Content */}
         <main className="flex-1 px-4 sm:px-8 py-6 sm:py-8 max-w-[1360px] w-full mx-auto">
-          {activeTab === 'overview' && (
-            <OverviewView
+          {farmerMode === 'in_season' ? (
+            <InSeasonCareView
               farm={farm}
+              inputs={inSeasonInputs}
               weather={weather}
-              simulation={simulation}
-              evaluation={evaluation}
-              isEvaluating={isEvaluating}
-              onRunEvaluation={() =>
-                executePipeline(
-                  farm,
-                  scenarioId,
-                  evaluation !== null,
-                  lang,
-                  activeScenarioOverride
-                )
-              }
-              onNavigate={setActiveTab}
-            />
-          )}
-
-          {activeTab === 'farm-setup' && (
-            <FarmSetupView
-              farm={farm}
-              onUpdateFarm={handleUpdateFarm}
-              onRunEvaluation={(overrideFarm) => {
-                const target = overrideFarm ?? farm;
-                setActiveTab('overview');
-                void executePipeline(
-                  target,
-                  scenarioId,
-                  false,
-                  lang,
-                  activeScenarioOverride
-                );
-              }}
-              isEvaluating={isEvaluating}
-            />
-          )}
-
-          {activeTab === 'climate' && (
-            <ClimateIntelligenceView
-              farm={farm}
-              weather={weather}
-              thresholds={weatherThresholds}
               isFetchingWeather={isFetchingWeather}
-              onUpdateThresholds={handleUpdateThresholds}
+              evaluation={inSeasonEvaluation}
+              hasStaleEvaluation={hasStaleInSeasonEvaluation}
+              isEvaluating={isEvaluatingInSeason}
+              elapsedSeconds={elapsedSeconds}
+              onUpdateInputs={setInSeasonInputs}
               onRefreshWeather={() => refreshWeather(farm, weatherThresholds)}
-              onNavigate={setActiveTab}
+              onRunInSeasonEvaluation={() => {
+                void executeInSeasonPipeline();
+              }}
+              onEditFarmSetup={() => {
+                setFarmerMode('plan_season');
+                setActiveTab('farm-setup');
+              }}
             />
-          )}
+          ) : (
+            <>
+              {activeTab === 'overview' && (
+                <OverviewView
+                  farm={farm}
+                  weather={weather}
+                  simulation={simulation}
+                  evaluation={evaluation}
+                  hasStaleEvaluation={Boolean(staleEvaluation)}
+                  isEvaluating={isEvaluating}
+                  elapsedSeconds={elapsedSeconds}
+                  onRunEvaluation={() =>
+                    executePipeline(
+                      farm,
+                      scenarioId,
+                      Boolean(evaluation || staleEvaluation),
+                      lang,
+                      activeScenarioOverride
+                    )
+                  }
+                  onNavigate={setActiveTab}
+                />
+              )}
 
-          {activeTab === 'simulator' && (
-            <CropSimulatorView
-              farm={farm}
-              simulation={simulation}
-              onUpdateWeights={handleUpdateWeights}
-              onNavigate={setActiveTab}
-            />
-          )}
+              {activeTab === 'farm-setup' && (
+                <FarmSetupView
+                  farm={farm}
+                  onUpdateFarm={handleUpdateFarm}
+                  onRunEvaluation={(overrideFarm) => {
+                    const target = overrideFarm ?? farm;
+                    setActiveTab('overview');
+                    void executePipeline(
+                      target,
+                      scenarioId,
+                      false,
+                      lang,
+                      activeScenarioOverride
+                    );
+                  }}
+                  isEvaluating={isEvaluating}
+                />
+              )}
 
-          {activeTab === 'decision-center' && (
-            <DecisionCenterView
-              evaluation={evaluation}
-              isEvaluating={isEvaluating}
-              onRunEvaluation={() =>
-                executePipeline(
-                  farm,
-                  scenarioId,
-                  evaluation !== null,
-                  lang,
-                  activeScenarioOverride
-                )
-              }
-            />
-          )}
+              {activeTab === 'climate' && (
+                <ClimateIntelligenceView
+                  farm={farm}
+                  weather={weather}
+                  thresholds={weatherThresholds}
+                  isFetchingWeather={isFetchingWeather}
+                  onUpdateThresholds={handleUpdateThresholds}
+                  onRefreshWeather={() =>
+                    refreshWeather(farm, weatherThresholds)
+                  }
+                  onNavigate={setActiveTab}
+                />
+              )}
 
-          {activeTab === 'scenarios' && (
-            <ScenarioAnalysisView
-              farm={farm}
-              scenarioId={scenarioId}
-              scenarioOverride={activeScenarioOverride}
-              simulation={simulation}
-              baselineSnapshot={baselineSnapshot}
-              currentEvaluation={evaluation}
-              isEvaluating={isEvaluating}
-              onSelectScenarioAndEvaluate={handleSelectScenarioAndEvaluate}
-              onUpdateScenarioOverride={handleUpdateScenarioOverride}
-              onUpdateScenarioControls={handleUpdateScenarioControls}
-              onRunScenarioEvaluation={() =>
-                executePipeline(
-                  farm,
-                  scenarioId,
-                  true,
-                  lang,
-                  activeScenarioOverride
-                )
-              }
-              onPinCurrentAsBaseline={handlePinCurrentAsBaseline}
-            />
-          )}
+              {activeTab === 'simulator' && (
+                <CropSimulatorView
+                  farm={farm}
+                  simulation={simulation}
+                  onUpdateWeights={handleUpdateWeights}
+                  onNavigate={setActiveTab}
+                />
+              )}
 
-          {activeTab === 'data-sources' && <DataSourcesView />}
+              {activeTab === 'decision-center' && (
+                <DecisionCenterView
+                  evaluation={evaluation}
+                  staleEvaluation={staleEvaluation}
+                  isEvaluating={isEvaluating}
+                  elapsedSeconds={elapsedSeconds}
+                  onRunEvaluation={() =>
+                    executePipeline(
+                      farm,
+                      scenarioId,
+                      Boolean(evaluation || staleEvaluation),
+                      lang,
+                      activeScenarioOverride
+                    )
+                  }
+                />
+              )}
+
+              {activeTab === 'scenarios' && (
+                <ScenarioAnalysisView
+                  farm={farm}
+                  scenarioId={scenarioId}
+                  scenarioOverride={activeScenarioOverride}
+                  simulation={simulation}
+                  baselineSnapshot={baselineSnapshot}
+                  currentEvaluation={evaluation}
+                  isEvaluating={isEvaluating}
+                  onSelectScenario={handleSelectScenario}
+                  onUpdateScenarioOverride={handleUpdateScenarioOverride}
+                  onUpdateScenarioControls={handleUpdateScenarioControls}
+                  onRunScenarioEvaluation={() =>
+                    executePipeline(
+                      farm,
+                      scenarioId,
+                      true,
+                      lang,
+                      activeScenarioOverride
+                    )
+                  }
+                  onPinCurrentAsBaseline={handlePinCurrentAsBaseline}
+                />
+              )}
+
+              {activeTab === 'data-sources' && <DataSourcesView />}
+            </>
+          )}
         </main>
 
         {/* Quiet Informational Footer */}
@@ -741,7 +941,10 @@ export default function App() {
             <span>{t('footer.right')}</span>
             <button
               type="button"
-              onClick={() => setActiveTab('data-sources')}
+              onClick={() => {
+                setFarmerMode('plan_season');
+                setActiveTab('data-sources');
+              }}
               className="font-semibold text-emerald-800 hover:underline cursor-pointer"
             >
               {t('footer.sourcesLink')}

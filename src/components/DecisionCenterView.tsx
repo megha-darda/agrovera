@@ -22,13 +22,17 @@ import {
 
 interface DecisionCenterViewProps {
   evaluation: AgenticEvaluationResponse | null;
+  staleEvaluation?: AgenticEvaluationResponse | null;
   isEvaluating: boolean;
+  elapsedSeconds?: number;
   onRunEvaluation: () => void;
 }
 
 export const DecisionCenterView: React.FC<DecisionCenterViewProps> = ({
   evaluation,
+  staleEvaluation = null,
   isEvaluating,
+  elapsedSeconds = 0,
   onRunEvaluation,
 }) => {
   const { t, i18n } = useTranslation();
@@ -49,40 +53,77 @@ export const DecisionCenterView: React.FC<DecisionCenterViewProps> = ({
   return (
     <div className="space-y-8">
       {/* Header */}
-      <section className="bg-white border border-stone-200/90 rounded-xl p-6 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-stone-500 mb-1">
-            <span>{t('decisionCenter.archBadge')}</span>
-            <span aria-hidden="true">·</span>
-            <span className="font-mono">
-              Orchestrator: gemini-4-hydrogen · Decision: gemini-4-carbon ·
-              Critic: gemini-4-carbon
-            </span>
+      <section className="bg-white border border-stone-200/90 rounded-xl p-6 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-xs text-stone-500 mb-1">
+              {t('decisionCenter.archBadge')}
+            </div>
+            <h1 className="text-xl sm:text-2xl font-bold text-[#0F291E]">
+              {t('decisionCenter.title')}
+            </h1>
+            <p className="text-sm text-stone-600 mt-0.5 max-w-3xl">
+              {t('decisionCenter.subtitle')}
+            </p>
           </div>
-          <h1 className="text-xl sm:text-2xl font-bold text-[#0F291E]">
-            {t('decisionCenter.title')}
-          </h1>
-          <p className="text-sm text-stone-600 mt-0.5 max-w-3xl">
-            {t('decisionCenter.subtitle')}
-          </p>
+
+          {(evaluation || isEvaluating) && (
+            <button
+              type="button"
+              onClick={onRunEvaluation}
+              disabled={isEvaluating}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#0F291E] hover:bg-[#163B2B] disabled:opacity-60 text-white text-sm font-medium whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <Play className="w-4 h-4" />
+              {isEvaluating
+                ? t('decisionCenter.executingBtn')
+                : t('decisionCenter.rerunBtn')}
+            </button>
+          )}
         </div>
 
-        <button
-          type="button"
-          onClick={onRunEvaluation}
-          disabled={isEvaluating}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#0F291E] hover:bg-[#163B2B] disabled:opacity-60 text-white text-sm font-medium whitespace-nowrap shrink-0 cursor-pointer"
-        >
-          <Play className="w-4 h-4" />
-          {isEvaluating
-            ? t('decisionCenter.executingBtn')
-            : evaluation
-              ? t('decisionCenter.rerunBtn')
-              : t('decisionCenter.executeBtn')}
-        </button>
+        <details className="pt-3 border-t border-stone-100 text-xs text-stone-600">
+          <summary className="font-medium text-stone-700 cursor-pointer select-none">
+            {t('decisionCenter.techDetailsToggle')}
+          </summary>
+          <div className="mt-2 font-mono text-[11px] text-stone-500 space-y-0.5">
+            <div>
+              Orchestrator: {evaluation?.modelsUsed.orchestrator ?? 'gemini-4-hydrogen'} · Decision:{' '}
+              {evaluation?.modelsUsed.decisionAgent ?? 'gemini-4-carbon'} · Critic:{' '}
+              {evaluation?.modelsUsed.criticAgent ?? 'gemini-4-carbon'}
+            </div>
+            {evaluation && (
+              <div>{t('decisionCenter.runIdLabel', { id: evaluation.runId })}</div>
+            )}
+          </div>
+        </details>
       </section>
 
-      {!evaluation && !isEvaluating && (
+      {!evaluation && staleEvaluation && !isEvaluating && (
+        <section className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-amber-950 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-start gap-3 max-w-3xl">
+            <ShieldAlert className="w-5 h-5 text-amber-800 shrink-0 mt-0.5" />
+            <p className="text-sm leading-relaxed">
+              {t('decisionCenter.staleParamsBanner', {
+                prevCrop: formatCropName(
+                  staleEvaluation.decision?.recommendedCropId ?? 'none',
+                  lang
+                ),
+              })}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onRunEvaluation}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#0F291E] hover:bg-[#163B2B] text-white text-xs sm:text-sm font-medium whitespace-nowrap shrink-0 cursor-pointer"
+          >
+            <Play className="w-4 h-4" />
+            {t('decisionCenter.rerunUpdatedBtn')}
+          </button>
+        </section>
+      )}
+
+      {!evaluation && !staleEvaluation && !isEvaluating && (
         <section className="bg-white border border-stone-200/90 rounded-xl p-8 text-center space-y-4">
           <Cpu className="w-8 h-8 text-emerald-800 mx-auto" />
           <h2 className="text-lg font-bold text-[#0F291E]">
@@ -104,24 +145,44 @@ export const DecisionCenterView: React.FC<DecisionCenterViewProps> = ({
 
       {isEvaluating && (
         <section className="bg-white border border-stone-200/90 rounded-xl p-6 space-y-3">
-          <div className="flex items-center gap-2.5 text-sm font-semibold text-[#0F291E]">
-            <Activity className="w-4 h-4 text-emerald-700 animate-spin" />
-            <span>{t('decisionCenter.loadingBanner')}</span>
+          <div className="flex flex-wrap items-center justify-between gap-2.5 text-sm font-semibold text-[#0F291E]">
+            <span className="flex items-center gap-2.5">
+              <Activity className="w-4 h-4 text-emerald-700 animate-spin shrink-0" />
+              <span>
+                {elapsedSeconds < 3
+                  ? t('progress.planStage1')
+                  : elapsedSeconds < 7
+                    ? t('progress.planStage2')
+                    : elapsedSeconds < 14
+                      ? t('progress.planStage3')
+                      : t('progress.planStage4')}
+              </span>
+            </span>
+            <span className="text-xs font-mono tabular-nums text-stone-500">
+              {t('progress.elapsed', { sec: elapsedSeconds })}
+            </span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-2">
             {[
-              t('decisionCenter.step1'),
-              t('decisionCenter.step2'),
-              t('decisionCenter.step3'),
-              t('decisionCenter.step4'),
-            ].map((step) => (
-              <div
-                key={step}
-                className="p-3 rounded-lg bg-stone-50 border border-stone-200 text-xs text-stone-600 animate-pulse"
-              >
-                {step}
-              </div>
-            ))}
+              { label: t('decisionCenter.step1'), activeAt: 0 },
+              { label: t('decisionCenter.step2'), activeAt: 3 },
+              { label: t('decisionCenter.step3'), activeAt: 7 },
+              { label: t('decisionCenter.step4'), activeAt: 14 },
+            ].map((step) => {
+              const reached = elapsedSeconds >= step.activeAt;
+              return (
+                <div
+                  key={step.label}
+                  className={`p-3 rounded-lg border text-xs font-medium ${
+                    reached
+                      ? 'bg-[#F2F7F4] border-emerald-700/50 text-[#0F291E]'
+                      : 'bg-stone-50 border-stone-200 text-stone-500'
+                  }`}
+                >
+                  {step.label}
+                </div>
+              );
+            })}
           </div>
         </section>
       )}
@@ -191,10 +252,8 @@ export const DecisionCenterView: React.FC<DecisionCenterViewProps> = ({
             {/* Decision Agent Output */}
             <div className="lg:col-span-6 bg-white border border-stone-200/90 rounded-xl p-6 space-y-5">
               <div className="border-b border-stone-100 pb-4">
-                <div className="text-xs text-stone-500 font-mono mb-1">
-                  {t('decisionCenter.decisionHeaderSub', {
-                    model: evaluation.modelsUsed.decisionAgent,
-                  })}
+                <div className="text-xs text-stone-500 mb-1">
+                  {t('overview.decisionCardSub')}
                 </div>
                 <h2 className="text-lg font-bold text-[#0F291E]">
                   {evaluation.decision
@@ -295,10 +354,8 @@ export const DecisionCenterView: React.FC<DecisionCenterViewProps> = ({
             {/* Critic Agent + Deterministic Validation Gate */}
             <div className="lg:col-span-6 bg-white border border-stone-200/90 rounded-xl p-6 space-y-5">
               <div className="border-b border-stone-100 pb-4">
-                <div className="text-xs text-stone-500 font-mono mb-1">
-                  {t('decisionCenter.criticHeaderSub', {
-                    model: evaluation.modelsUsed.criticAgent,
-                  })}
+                <div className="text-xs text-stone-500 mb-1">
+                  {t('overview.criticCardSub')}
                 </div>
                 <div className="flex items-center justify-between gap-2">
                   <h2 className="text-lg font-bold text-[#0F291E]">

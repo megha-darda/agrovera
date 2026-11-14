@@ -100,12 +100,12 @@ export const CLIMATE_SCENARIOS: Record<ClimateScenarioId, ClimateScenarioConfig>
     },
     isHypotheticalStressTest: false,
     labelBadge: {
-      en: 'Hypothetical Normal-Season Baseline + Live Near-Term Forecast',
-      de: 'Normale Saison-Referenz + aktuelle Kurzfristprognose',
+      en: 'Illustrative Normal-Season Planning Baseline',
+      de: 'Illustratives Normal-Saison-Planungsszenario',
     },
     description: {
-      en: 'Combines live DWD/Open-Meteo planting-window observations with typical German growing-season rainfall (1.00×) and normal crop evapotranspiration (1.00×).',
-      de: 'Verbindet aktuelle DWD-/Open-Meteo-Wetterdaten für das Bestellfenster mit durchschnittlichen deutschen Vegetationsniederschlägen (1,00×) und normalem Wasserbedarf (1,00×).',
+      en: 'Uses illustrative German growing-season rainfall (1.00×) and crop evapotranspiration (1.00×) for seasonal water-balance planning. Current 7-day DWD/Open-Meteo weather is kept separate and applied only when the forecast dates overlap the planned sowing window.',
+      de: 'Nutzt exemplarische deutsche Vegetationsniederschläge (1,00×) und normalen Wasserbedarf (1,00×) für die saisonale Wasserbilanz. Aktuelles 7-Tage-DWD-/Open-Meteo-Feldwetter wird getrennt geführt und nur berücksichtigt, wenn der Vorhersagezeitraum im geplanten Saatfenster liegt.',
     },
     waterDemandMultiplier: 1.0,
     seasonalRainfallMultiplier: 1.0,
@@ -298,6 +298,15 @@ export const GERMAN_CITY_PRESETS: GermanCityPreset[] = [
     state: 'Berlin / Brandenburg',
     latitude: 52.52,
     longitude: 13.405,
+    typicalSoil: 'Sandy',
+  },
+  {
+    id: 'cottbus',
+    cityEn: 'Cottbus',
+    cityDe: 'Cottbus',
+    state: 'Brandenburg',
+    latitude: 51.7563,
+    longitude: 14.3329,
     typicalSoil: 'Sandy',
   },
   {

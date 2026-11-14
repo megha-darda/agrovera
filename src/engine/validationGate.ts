@@ -1,3 +1,4 @@
+import { MONTH_NAMES_DE, MONTH_NAMES_EN } from './presets.ts';
 import type {
   BilingualText,
   CriticAgentOutput,
@@ -5,8 +6,42 @@ import type {
   SimulationRunOutput,
   ValidationCheckItem,
   ValidationGateResult,
+  ValidationOutcomeStatus,
   WeatherForecastAnalysis,
 } from '../types/domain.ts';
+
+/**
+ * Detects whether Decision Agent prose inappropriately credits an off-season
+ * short-term weather forecast (e.g. November 7-day forecast) as planting-season
+ * rainfall or seasonal water supply for an unrelated future planting month (e.g. April).
+ */
+function detectOffSeasonWeatherMisuse(
+  decision: DecisionAgentOutput,
+  simulation: SimulationRunOutput
+): boolean {
+  if (simulation.weatherApplicability.status !== 'current_field_weather_only') {
+    return false;
+  }
+
+  const combinedText = [
+    decision.headline,
+    decision.executiveSummary,
+    decision.tradeoffAnalysis?.financial ?? '',
+    decision.tradeoffAnalysis?.climateAndEnvironmental ?? '',
+    decision.tradeoffAnalysis?.waterAndSoilResources ?? '',
+  ]
+    .join(' ')
+    .toLowerCase();
+
+  const misusePatterns: RegExp[] = [
+    /forecast(?:\s+[\w-]+){0,3}\s+(?:is\s+|was\s+)?(?:provides?|supplies?|credits?|credited|adds?|added|covers?|reduces?|reduced|lowers?|offsets?)\s+[^.]*(?:seasonal|growing[- ]season|water\s+balance|irrigation)/i,
+    /(?:credited|crediting|apply|applied|count|counted)\s+[^.]*forecast\s+[^.]*(?:water\s+balance|seasonal|irrigation)/i,
+    /7[- ]day\s+forecast\s+[^.]*(?:confirm|provid|ensur|determin|credit|reduc)[a-z]*\s+[^.]*(?:april|may|march|june|july|august|september|october|growing\s+season|seasonal)/i,
+    /(?:kurzfristprognose|7[- ]tage[- ]prognose|wettervorhersage)(?:\s+[\wäöüß-]+){0,3}\s+(?:deckt|liefert|reduziert|senkt|gutgeschrieben)\s+[^.]*(?:saison|zusatzbewässerung|wasserbilanz)/i,
+  ];
+
+  return misusePatterns.some((re) => re.test(combinedText));
+}
 
 /**
  * Deterministic application-level verification gate executed after
@@ -46,16 +81,16 @@ export function runDeterministicValidationGate(
     checks.push({
       code: 'NO_FEASIBLE_CONSISTENCY',
       label: {
-        en: 'No-crop outcome matches feasibility state',
-        de: 'Verzicht auf Kulturempfehlung entspricht Machbarkeitsstatus',
+        en: 'Abstention matches zero-feasible-crop state',
+        de: 'Verzicht auf Kulturempfehlung entspricht Null-Machbarkeits-Status',
       },
       passed: noFeasibleJustified,
       detail: {
         en: noFeasibleJustified
-          ? 'Decision rightly abstained when zero candidates are verified feasible.'
+          ? 'No crop satisfies all current hard constraints; abstaining from a crop recommendation is required.'
           : `Decision returned 'none' despite ${feasibleIds.size} feasible crop(s) existing.`,
         de: noFeasibleJustified
-          ? 'Korrekte Zurückhaltung, da keine Kultur alle harten Restriktionen erfüllt.'
+          ? 'Keine Kultur erfüllt alle aktuellen harten Grenzen; der Verzicht auf eine Kulturempfehlung ist zwingend.'
           : `'none' gewählt, obwohl ${feasibleIds.size} machbare Kultur(en) verfügbar sind.`,
       },
     });
@@ -83,24 +118,29 @@ export function runDeterministicValidationGate(
       de: `Empfohlene Kultur '${decision.recommendedCropId}' existiert nicht im Simulationsergebnis.`,
     });
   } else {
-    const isNotInfeasible = chosenCrop.feasibilityStatus !== 'infeasible';
+    // Strictly forbid recommending any infeasible crop, and forbid forcing a crop when 0 crops are feasible and 0 are uncertain
+    const isInfeasible = chosenCrop.feasibilityStatus === 'infeasible';
+    const forcedWhenZeroFeasible =
+      feasibleIds.size === 0 && chosenCrop.feasibilityStatus !== 'uncertain';
+    const hardFeasibleOk = !isInfeasible && !forcedWhenZeroFeasible;
+
     checks.push({
       code: 'HARD_CONSTRAINT_FEASIBILITY',
       label: {
         en: 'Recommended crop satisfies seasonal, water, and budget feasibility',
         de: 'Empfohlene Kultur erfüllt Saatzeit-, Wasser- und Budgetgrenzen',
       },
-      passed: isNotInfeasible,
+      passed: hardFeasibleOk,
       detail: {
-        en: isNotInfeasible
+        en: hardFeasibleOk
           ? `${chosenCrop.cropNames.en} status is '${chosenCrop.feasibilityStatus}'.`
           : `${chosenCrop.cropNames.en} is INFEASIBLE (${chosenCrop.infeasibilityReasons.join(' ')}).`,
-        de: isNotInfeasible
+        de: hardFeasibleOk
           ? `Status von ${chosenCrop.cropNames.de}: '${chosenCrop.feasibilityStatus}'.`
           : `${chosenCrop.cropNames.de} ist NICHT MACHBAR (${chosenCrop.infeasibilityReasonsBilingual.map((r) => r.de).join(' ')}).`,
       },
     });
-    if (!isNotInfeasible) {
+    if (!hardFeasibleOk) {
       failureReasonsBilingual.push({
         en: `Decision Agent recommended infeasible crop '${chosenCrop.cropNames.en}': ${chosenCrop.infeasibilityReasons.join(' ')}`,
         de: `Entscheidungs-Agent empfahl nicht machbare Kultur '${chosenCrop.cropNames.de}': ${chosenCrop.infeasibilityReasonsBilingual.map((r) => r.de).join(' ')}`,
@@ -202,7 +242,56 @@ export function runDeterministicValidationGate(
     }
   }
 
-  // 2. Alternative Comparison Completeness
+  // 2. Seasonal Weather Applicability & Forecast Horizon Integrity Check
+  const offSeasonMisuseDetected = detectOffSeasonWeatherMisuse(
+    decision,
+    simulation
+  );
+  const criticFlaggedWeatherMisuse =
+    critic.forecastUncertaintyCommunicated === false ||
+    critic.objections.some(
+      (o) =>
+        o.category === 'forecast_uncertainty' && o.severity === 'critical'
+    );
+  const weatherUsageValid =
+    !offSeasonMisuseDetected &&
+    !criticFlaggedWeatherMisuse &&
+    simulation.weatherApplicability.usedInSeasonalWaterBalance === false;
+
+  const plantMonthEn =
+    MONTH_NAMES_EN[simulation.farmSummary.plantingMonth - 1] ?? 'Planned month';
+  const plantMonthDe =
+    MONTH_NAMES_DE[simulation.farmSummary.plantingMonth - 1] ??
+    'Geplanter Monat';
+
+  checks.push({
+    code: 'WEATHER_SEASONAL_APPLICABILITY',
+    label: {
+      en: '7-day field weather strictly separated from planting-season water balance',
+      de: '7-Tage-Feldwetter strikt von saisonaler Wasserbilanz getrennt',
+    },
+    passed: weatherUsageValid,
+    detail: {
+      en: weatherUsageValid
+        ? simulation.weatherApplicability.status === 'current_field_weather_only'
+          ? `Off-season forecast (${simulation.weatherApplicability.forecastStartDate} → ${simulation.weatherApplicability.forecastEndDate}) excluded from ${plantMonthEn} water balance and crop risk scores.`
+          : 'Forecast horizon boundaries and seasonal planning assumptions properly separated.'
+        : `Inappropriate weather usage flagged: current 7-day forecast (${simulation.weatherApplicability.forecastStartDate ?? 'near-term'}) must not be treated as ${plantMonthEn} seasonal rainfall or full-season climate.`,
+      de: weatherUsageValid
+        ? simulation.weatherApplicability.status === 'current_field_weather_only'
+          ? `Saisonfremde Prognose (${simulation.weatherApplicability.forecastStartDate} → ${simulation.weatherApplicability.forecastEndDate}) nicht in ${plantMonthDe}-Wasserbilanz oder Kulturrisiko eingerechnet.`
+          : 'Kurzfristprognose und saisonale Planungsannahmen sauber getrennt.'
+        : `Unzulässige Wetterverwendung erkannt: Aktuelle 7-Tage-Prognose (${simulation.weatherApplicability.forecastStartDate ?? 'Kurzfrist'}) darf nicht als ${plantMonthDe}-Saisonregen gewertet werden.`,
+    },
+  });
+  if (!weatherUsageValid) {
+    failureReasonsBilingual.push({
+      en: `Inappropriate seasonal weather usage: short-term forecast cannot be credited as ${plantMonthEn} growing-season water supply or seasonal climate.`,
+      de: `Unzulässige saisonale Wetterverwendung: Kurzfristprognose darf nicht als ${plantMonthDe}-Saisonniederschlag gewertet werden.`,
+    });
+  }
+
+  // 3. Alternative Comparison Completeness
   const comparedCount = decision.alternativeComparisons?.length ?? 0;
   const alternativesAddressed =
     decision.recommendedCropId === 'none'
@@ -211,23 +300,23 @@ export function runDeterministicValidationGate(
   checks.push({
     code: 'ALTERNATIVES_COMPARED',
     label: {
-      en: 'Alternative candidate crops explicitly compared',
-      de: 'Alle Alternativkulturen nachvollziehbar verglichen',
+      en: 'Candidate crops and exclusion trade-offs explicitly documented',
+      de: 'Kandidatenkulturen und Ausschlussgründe nachvollziehbar dokumentiert',
     },
     passed: alternativesAddressed,
     detail: {
-      en: `${comparedCount} alternative crop trade-off comparison(s) documented.`,
-      de: `${comparedCount} Alternativkulturen im Abwägungsvergleich dokumentiert.`,
+      en: `${comparedCount} candidate crop comparison(s) documented.`,
+      de: `${comparedCount} Kulturvergleiche im Abwägungsbericht dokumentiert.`,
     },
   });
   if (!alternativesAddressed) {
     failureReasonsBilingual.push({
-      en: 'Decision Agent did not compare all alternative crop candidates.',
-      de: 'Der Entscheidungs-Agent hat nicht alle Alternativkulturen verglichen.',
+      en: 'Decision Agent did not compare all candidate crops.',
+      de: 'Der Entscheidungs-Agent hat nicht alle Kandidatenkulturen verglichen.',
     });
   }
 
-  // 3. Assumptions, Uncertainty & Human Review Disclosures
+  // 4. Assumptions, Uncertainty & Human Review Disclosures
   const disclosuresPresent =
     Array.isArray(decision.keyAssumptions) &&
     decision.keyAssumptions.length > 0 &&
@@ -259,11 +348,18 @@ export function runDeterministicValidationGate(
     });
   }
 
-  // 4. Independent Critic Agent Verdict Check
-  const criticAccepted =
-    critic.verdict !== 'reject' &&
-    critic.hardConstraintsSatisfied &&
-    critic.numericalClaimsSupported;
+  // 5. Independent Critic Agent Verdict Check
+  // When 0 crops are feasible and Decision rightly abstains ('none'), hardConstraintsSatisfied may be false
+  // because zero crops satisfy hard constraints; do not penalize a valid abstention for that boolean,
+  // while NEVER treating 0 feasible crops as a verified crop recommendation.
+  const isZeroFeasibleAbstention =
+    feasibleIds.size === 0 && decision.recommendedCropId === 'none';
+
+  const criticAccepted = isZeroFeasibleAbstention
+    ? critic.verdict !== 'reject' && critic.numericalClaimsSupported
+    : critic.verdict !== 'reject' &&
+      critic.hardConstraintsSatisfied &&
+      critic.numericalClaimsSupported;
 
   checks.push({
     code: 'INDEPENDENT_CRITIC_VERDICT',
@@ -273,8 +369,12 @@ export function runDeterministicValidationGate(
     },
     passed: criticAccepted,
     detail: {
-      en: `Critic verdict: ${critic.verdict.toUpperCase()} (hardConstraints=${critic.hardConstraintsSatisfied}, supportedNumbers=${critic.numericalClaimsSupported}).`,
-      de: `Prüfergebnis: ${critic.verdict.toUpperCase()} (Restriktionen=${critic.hardConstraintsSatisfied}, Zahlenbeleg=${critic.numericalClaimsSupported}).`,
+      en: isZeroFeasibleAbstention
+        ? `Critic verdict: ${critic.verdict.toUpperCase()} on zero-feasible abstention (supportedNumbers=${critic.numericalClaimsSupported}).`
+        : `Critic verdict: ${critic.verdict.toUpperCase()} (hardConstraints=${critic.hardConstraintsSatisfied}, supportedNumbers=${critic.numericalClaimsSupported}).`,
+      de: isZeroFeasibleAbstention
+        ? `Prüfergebnis: ${critic.verdict.toUpperCase()} bei Null-Machbarkeits-Verzicht (Zahlenbeleg=${critic.numericalClaimsSupported}).`
+        : `Prüfergebnis: ${critic.verdict.toUpperCase()} (Restriktionen=${critic.hardConstraintsSatisfied}, Zahlenbeleg=${critic.numericalClaimsSupported}).`,
     },
   });
   if (!criticAccepted) {
@@ -298,8 +398,29 @@ export function runDeterministicValidationGate(
     feasibleIds.size === 0 ||
     (chosenCrop !== null && uncertainIds.has(chosenCrop.cropId));
 
+  // A verified recommendation ONLY exists when all checks pass AND a genuinely feasible crop was recommended!
+  const hasVerifiedRecommendation =
+    passed &&
+    feasibleIds.size > 0 &&
+    chosenCrop !== null &&
+    chosenCrop.feasibilityStatus === 'feasible' &&
+    !requiresHumanReview;
+
+  let outcomeStatus: ValidationOutcomeStatus = 'validation_failed';
+  if (!passed) {
+    outcomeStatus = 'validation_failed';
+  } else if (feasibleIds.size === 0 || decision.recommendedCropId === 'none') {
+    outcomeStatus = 'valid_abstention_no_feasible_crop';
+  } else if (requiresHumanReview) {
+    outcomeStatus = 'advisory_review';
+  } else {
+    outcomeStatus = 'verified_recommendation';
+  }
+
   return {
     passed,
+    hasVerifiedRecommendation,
+    outcomeStatus,
     requiresHumanReview,
     checks,
     failureReasons,

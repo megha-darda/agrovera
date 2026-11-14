@@ -5,9 +5,17 @@ import {
   Type,
 } from '@google/genai';
 import { CROP_DATABASE } from '../src/engine/presets.ts';
+import {
+  buildInSeasonCarePlan,
+  GROWTH_STAGE_LABELS,
+  validateInSeasonAgentOutput,
+} from '../src/engine/inSeasonCare.ts';
 import { simulateCrops } from '../src/engine/simulator.ts';
 import { runDeterministicValidationGate } from '../src/engine/validationGate.ts';
-import { fetchOpenMeteoWeather } from '../src/engine/weather.ts';
+import {
+  checkForecastSowingAlignment,
+  fetchOpenMeteoWeather,
+} from '../src/engine/weather.ts';
 import type {
   AgentTimelineEvent,
   AgenticEvaluationResponse,
@@ -18,9 +26,14 @@ import type {
   CropId,
   DecisionAgentOutput,
   FarmProfile,
+  InSeasonCareInputs,
+  InSeasonCriticOutput,
+  InSeasonDecisionOutput,
+  InSeasonEvaluationResponse,
   ReviewCycleRecord,
   ScenarioParametersOverride,
   SimulationRunOutput,
+  ValidationGateResult,
   WeatherForecastAnalysis,
   WeatherThresholds,
 } from '../src/types/domain.ts';
@@ -484,6 +497,11 @@ STRICT OPERATING RULES:
 5. SAFETY: Never guarantee yields, farmgate prices, profits, or weather outcomes. Never recommend unverified chemical or pesticide treatments. Always advise human agronomic consultation (Offizialberatung / Landwirtschaftskammer) before seed purchase or sowing.
 6. CONCISENESS: Keep every string field crisp and scannable (1–2 sentences per field, 3 short items for arrays).`;
 
+      const weatherAlignment = checkForecastSowingAlignment(
+        weather,
+        farm.plantingMonth
+      );
+
       const payload = {
         requestedOutputLanguage: language,
         reviewCycle: cycle,
@@ -494,6 +512,10 @@ STRICT OPERATING RULES:
           status: weather.status,
           source: weather.source,
           forecastPeriod: weather.forecastPeriod,
+          forecastAlignedWithPlannedSowingMonth: weatherAlignment.aligned,
+          seasonalAlignmentNote: weatherAlignment.aligned
+            ? 'Live 7-14 day forecast directly overlaps the planned sowing month.'
+            : `Live 7-14 day forecast covers calendar month ${weatherAlignment.forecastStartMonth ?? 'unknown'}, whereas planned sowing is month ${farm.plantingMonth}. Treat live forecast as current station context only, not sowing-month weather.`,
           summary: weather.summary,
           riskIndicators: weather.riskIndicators,
           scopeLimitationNotice: weather.scopeLimitationNotice,
@@ -565,6 +587,11 @@ AUDIT CHECKLIST:
 
 Be objective: do NOT fabricate artificial rejections when the Decision Agent's output is accurate and compliant, and do NOT rubber-stamp genuine constraint violations or unsupported numbers. Keep criticSummary and objection details crisp (1–2 sentences each).`;
 
+      const weatherAlignment = checkForecastSowingAlignment(
+        weather,
+        farm.plantingMonth
+      );
+
       const auditInput = {
         requestedOutputLanguage: language,
         reviewCycle: cycle,
@@ -574,6 +601,7 @@ Be objective: do NOT fabricate artificial rejections when the Decision Agent's o
           status: weather.status,
           source: weather.source,
           forecastPeriod: weather.forecastPeriod,
+          forecastAlignedWithPlannedSowingMonth: weatherAlignment.aligned,
           summary: weather.summary,
           riskIndicators: weather.riskIndicators,
         },
@@ -1206,3 +1234,324 @@ export async function executeAgenticPipeline(params: {
     scenarioShiftExplanation,
   };
 }
+
+const inSeasonDecisionResponseSchema = {
+  type: Type.OBJECT,
+  properties: {
+    selectedActionIds: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      description:
+        'Up to 3 action IDs selected strictly from the deterministic candidateActions list.',
+    },
+    weeklySummary: {
+      type: Type.STRING,
+      description:
+        'Concise 2-3 sentence summary of the 7-day weather outlook for the planted crop, growth stage, and remaining irrigation water.',
+    },
+    priorityFocus: {
+      type: Type.STRING,
+      description:
+        'One clear sentence stating the top field-check priority over the next 7 days.',
+    },
+    keyAssumptions: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      description:
+        'Explicit assumptions used (e.g., 7-day forecast horizon only, farmer-reported water used, calendar vs field BBCH stage).',
+    },
+    missingObservations: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      description:
+        'Missing on-field observations that the farmer must verify directly (e.g., root-zone soil moisture, leaf symptoms, drainage outlets).',
+    },
+    advisoryNotice: {
+      type: Type.STRING,
+      description:
+        'Clear human-review advisory stating that 7-day weather is not a seasonal prediction and no chemical or irrigation doses are prescribed.',
+    },
+  },
+  required: [
+    'selectedActionIds',
+    'weeklySummary',
+    'priorityFocus',
+    'keyAssumptions',
+    'missingObservations',
+    'advisoryNotice',
+  ],
+};
+
+const inSeasonCriticResponseSchema = {
+  type: Type.OBJECT,
+  properties: {
+    verdict: {
+      type: Type.STRING,
+      description: 'Audit verdict: pass, review, or reject.',
+    },
+    onlyCandidateActionsUsed: {
+      type: Type.BOOLEAN,
+      description:
+        'True ONLY if every ID in selectedActionIds exists in deterministic candidateActions.',
+    },
+    waterLimitRespected: {
+      type: Type.BOOLEAN,
+      description:
+        'True ONLY if remaining irrigation water is respected and never exceeded or treated as negative.',
+    },
+    growthStageUncertaintyFlagged: {
+      type: Type.BOOLEAN,
+      description:
+        'True if growth-stage uncertainty or need for BBCH field confirmation is transparently noted when applicable.',
+    },
+    missingSoilObservationsFlagged: {
+      type: Type.BOOLEAN,
+      description:
+        'True if missing measured soil moisture / field observations are explicitly communicated.',
+    },
+    noUnsupportedClaims: {
+      type: Type.BOOLEAN,
+      description:
+        'True ONLY if the output avoids fabricated yield gains, disease diagnoses, pesticide instructions, irrigation volumes, or crop-switching advice.',
+    },
+    flags: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          severity: {
+            type: Type.STRING,
+            description: 'critical, warning, or note.',
+          },
+          detail: {
+            type: Type.STRING,
+            description: 'Specific agronomic or verification note.',
+          },
+        },
+        required: ['severity', 'detail'],
+      },
+    },
+    criticSummary: {
+      type: Type.STRING,
+      description: 'Concise 1-2 sentence audit summary.',
+    },
+  },
+  required: [
+    'verdict',
+    'onlyCandidateActionsUsed',
+    'waterLimitRespected',
+    'growthStageUncertaintyFlagged',
+    'missingSoilObservationsFlagged',
+    'noUnsupportedClaims',
+    'flags',
+    'criticSummary',
+  ],
+};
+
+export async function executeInSeasonAgenticPipeline(params: {
+  farm: FarmProfile;
+  inputs: InSeasonCareInputs;
+  weatherThresholds: WeatherThresholds;
+  language: AppLanguage;
+}): Promise<InSeasonEvaluationResponse> {
+  const { farm, inputs, weatherThresholds, language } = params;
+  const isDe = language === 'de';
+
+  const weather = await fetchOpenMeteoWeather({
+    latitude: farm.latitude ?? Number.NaN,
+    longitude: farm.longitude ?? Number.NaN,
+    locationLabel: farm.locationName,
+    thresholds: weatherThresholds,
+  });
+
+  const plan = buildInSeasonCarePlan(farm, inputs, weather);
+  const ai = createSharedGenAIClient();
+
+  const langDirective = isDe
+    ? 'Write all natural-language text fields in clear, professional agricultural German (Deutsch). Keep selectedActionIds strictly identical to the provided candidate IDs.'
+    : 'Write all natural-language text fields in clear, professional agricultural English. Keep selectedActionIds strictly identical to the provided candidate IDs.';
+
+  const contextPayload = {
+    farm: {
+      locationName: farm.locationName,
+      soilType: farm.soilType,
+      areaHa: farm.areaHa,
+      budgetEur: farm.budgetAmount,
+    },
+    inSeasonInputs: {
+      plantedCropId: plan.plantedCropId,
+      plantedCropName: isDe ? plan.plantedCropNames.de : plan.plantedCropNames.en,
+      plantingDate: plan.plantingDate,
+      daysSincePlanting: plan.daysSincePlanting,
+      selectedGrowthStage: plan.selectedGrowthStage,
+      selectedGrowthStageLabel: isDe
+        ? GROWTH_STAGE_LABELS[plan.selectedGrowthStage].de
+        : GROWTH_STAGE_LABELS[plan.selectedGrowthStage].en,
+      isStageUncertainOrEstimated: plan.isStageUncertainOrEstimated,
+      stageStatusNote: isDe ? plan.stageStatusNote.de : plan.stageStatusNote.en,
+      farmerConditionNotes: inputs.conditionNotes || null,
+    },
+    waterBalance: plan.waterBalance,
+    sevenDayForecastStrip: plan.sevenDayStrip,
+    deterministicCandidateActions: plan.candidateActions.map((a) => ({
+      id: a.id,
+      priority: a.priority,
+      title: isDe ? a.title.de : a.title.en,
+      relevantDate: a.relevantDate,
+      forecastTrigger: isDe ? a.forecastTrigger.de : a.forecastTrigger.en,
+      reason: isDe ? a.reason.de : a.reason.en,
+      waterOrBudgetConsideration: isDe
+        ? a.waterOrBudgetConsideration.de
+        : a.waterOrBudgetConsideration.en,
+      uncertaintyOrMissing: isDe
+        ? a.uncertaintyOrMissing.de
+        : a.uncertaintyOrMissing.en,
+    })),
+  };
+
+  let finalDecision: InSeasonDecisionOutput | null = null;
+  let finalCritic: InSeasonCriticOutput | null = null;
+  let finalValidationGate: ValidationGateResult | null = null;
+  let priorRejectionNote = '';
+
+  try {
+    for (let cycle = 1; cycle <= MAX_REVIEW_CYCLES; cycle++) {
+      const decisionRes = await ai.models.generateContent({
+        model: MODEL_DECISION_AGENT,
+        contents: JSON.stringify({
+          ...contextPayload,
+          cycle,
+          priorValidationFeedback: priorRejectionNote || undefined,
+        }),
+        config: {
+          systemInstruction: [
+            'You are the AgroVera In-Season Crop Care Decision Agent for German farms.',
+            'STRICT RULES:',
+            '1. Select 1 to 3 action IDs ONLY from deterministicCandidateActions[].id. Never invent new action IDs.',
+            '2. The crop is ALREADY planted. NEVER recommend changing or replanting crops.',
+            '3. NEVER fabricate yield gains, disease diagnoses, pesticide/fungicide instructions, or specific irrigation volumes.',
+            '4. Respect waterBalance.remainingWaterM3 strictly. If remainingWaterM3 is 0, explicitly state no irrigation water remains.',
+            '5. Treat the 7-day forecast strictly as near-term weather, never as a seasonal prediction.',
+            '6. Explicitly mention missing root-zone soil moisture observations and any growth-stage uncertainty.',
+            langDirective,
+          ].join('\n'),
+          thinkingConfig: { thinkingLevel: ThinkingLevel.MEDIUM },
+          responseMimeType: 'application/json',
+          responseSchema: inSeasonDecisionResponseSchema,
+        },
+      });
+
+      const parsedDecision = JSON.parse(
+        (decisionRes.text ?? '{}').trim()
+      ) as InSeasonDecisionOutput;
+
+      const criticRes = await ai.models.generateContent({
+        model: MODEL_CRITIC_AGENT,
+        contents: JSON.stringify({
+          deterministicContext: contextPayload,
+          decisionAgentOutput: parsedDecision,
+        }),
+        config: {
+          systemInstruction: [
+            'You are the independent AgroVera In-Season Care Critic Agent.',
+            'Audit decisionAgentOutput against deterministicContext:',
+            '- Verify selectedActionIds are strictly a non-empty subset of deterministicCandidateActions[].id.',
+            '- Verify remainingWaterM3 cap is respected and never exceeded.',
+            '- Flag uncertain growth stages, missing soil-moisture observations, and insufficient remaining water.',
+            '- Reject (verdict="reject", noUnsupportedClaims=false) if the Decision Agent recommends switching crops, diagnoses a specific plant disease, prescribes pesticides/doses, or invents yield numbers or irrigation amounts.',
+            '- Use verdict="pass" or "review" when grounded and compliant.',
+            langDirective,
+          ].join('\n'),
+          thinkingConfig: { thinkingLevel: ThinkingLevel.MEDIUM },
+          responseMimeType: 'application/json',
+          responseSchema: inSeasonCriticResponseSchema,
+        },
+      });
+
+      const rawCritic = JSON.parse(
+        (criticRes.text ?? '{}').trim()
+      ) as InSeasonCriticOutput;
+      const normalizedVerdict: InSeasonCriticOutput['verdict'] =
+        rawCritic.verdict === 'pass' ||
+        rawCritic.verdict === 'review' ||
+        rawCritic.verdict === 'reject'
+          ? rawCritic.verdict
+          : 'review';
+
+      const parsedCritic: InSeasonCriticOutput = {
+        ...rawCritic,
+        verdict: normalizedVerdict,
+        flags: Array.isArray(rawCritic.flags)
+          ? rawCritic.flags.map((f) => ({
+              severity:
+                f.severity === 'critical' ||
+                f.severity === 'warning' ||
+                f.severity === 'note'
+                  ? f.severity
+                  : 'note',
+              detail: String(f.detail ?? ''),
+            }))
+          : [],
+      };
+
+      const gate = validateInSeasonAgentOutput(
+        parsedDecision,
+        parsedCritic,
+        plan
+      );
+
+      finalDecision = parsedDecision;
+      finalCritic = parsedCritic;
+      finalValidationGate = gate;
+
+      if (gate.passed) {
+        break;
+      }
+      priorRejectionNote = gate.failureReasons.join(' ');
+    }
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : 'In-Season Gemini call failed.';
+    return {
+      runId: `inseason-${Date.now()}`,
+      language,
+      completedAt: new Date().toISOString(),
+      farm,
+      inputs,
+      weather,
+      plan,
+      decision: null,
+      critic: null,
+      validationGate: null,
+      requiresHumanReview: true,
+      modelsUsed: {
+        decisionAgent: MODEL_DECISION_AGENT,
+        criticAgent: MODEL_CRITIC_AGENT,
+      },
+      aiError: {
+        stage: 'in_season_care',
+        model: MODEL_DECISION_AGENT,
+        message,
+      },
+    };
+  }
+
+  return {
+    runId: `inseason-${Date.now()}`,
+    language,
+    completedAt: new Date().toISOString(),
+    farm,
+    inputs,
+    weather,
+    plan,
+    decision: finalDecision,
+    critic: finalCritic,
+    validationGate: finalValidationGate,
+    requiresHumanReview: finalValidationGate?.requiresHumanReview ?? true,
+    modelsUsed: {
+      decisionAgent: MODEL_DECISION_AGENT,
+      criticAgent: MODEL_CRITIC_AGENT,
+    },
+  };
+}
+

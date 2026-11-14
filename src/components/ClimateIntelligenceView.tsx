@@ -22,6 +22,7 @@ import {
   YAxis,
 } from 'recharts';
 import { DEFAULT_WEATHER_THRESHOLDS } from '../engine/presets.ts';
+import { checkForecastSowingAlignment } from '../engine/weather.ts';
 import type {
   AppLanguage,
   FarmProfile,
@@ -31,6 +32,7 @@ import type {
 } from '../types/domain.ts';
 import {
   formatDateShort,
+  formatMonthName,
   formatTimeBerlin,
   pickBilingual,
 } from '../utils/formatters.ts';
@@ -58,6 +60,15 @@ export const ClimateIntelligenceView: React.FC<
 }) => {
   const { t, i18n } = useTranslation();
   const lang: AppLanguage = i18n.language === 'de' ? 'de' : 'en';
+
+  const weatherAlignment = checkForecastSowingAlignment(
+    weather,
+    farm.plantingMonth
+  );
+  const sowingMonthLabel = formatMonthName(farm.plantingMonth, lang);
+  const forecastMonthLabel = weatherAlignment.forecastStartMonth
+    ? formatMonthName(weatherAlignment.forecastStartMonth, lang)
+    : '';
 
   const dailyData =
     weather?.status === 'ok'
@@ -145,6 +156,20 @@ export const ClimateIntelligenceView: React.FC<
             </button>
           </div>
         </div>
+
+        {weather?.status === 'ok' &&
+          !weatherAlignment.aligned &&
+          forecastMonthLabel && (
+            <div className="mt-3 p-3.5 rounded-lg bg-amber-50/90 border border-amber-200 flex items-start gap-2.5 text-xs text-amber-950">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-800" />
+              <div>
+                {t('climate.seasonalMismatchBanner', {
+                  forecastMonth: forecastMonthLabel,
+                  sowingMonth: sowingMonthLabel,
+                })}
+              </div>
+            </div>
+          )}
       </section>
 
       {/* Unavailable / Error State */}

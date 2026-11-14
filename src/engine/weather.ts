@@ -31,6 +31,59 @@ function isCentralEuropeDwdDomain(lat: number, lon: number): boolean {
   return lat >= 45.0 && lat <= 56.0 && lon >= 4.0 && lon <= 18.0;
 }
 
+export interface ForecastSowingAlignment {
+  aligned: boolean;
+  forecastStartMonth: number | null;
+  forecastEndMonth: number | null;
+}
+
+/**
+ * Checks whether the live 7–14 day meteorological forecast window falls within
+ * the farmer's planned sowing month. Prevents off-season weather (e.g. November frost)
+ * from distorting spring or autumn sowing simulations.
+ */
+export function checkForecastSowingAlignment(
+  weather: WeatherForecastAnalysis | null,
+  plantingMonth: number
+): ForecastSowingAlignment {
+  if (
+    !weather ||
+    weather.status !== 'ok' ||
+    !weather.forecastPeriod?.startDate ||
+    !weather.forecastPeriod?.endDate
+  ) {
+    return {
+      aligned: false,
+      forecastStartMonth: null,
+      forecastEndMonth: null,
+    };
+  }
+
+  const parseMonth = (isoDate: string): number | null => {
+    const parts = isoDate.split('-');
+    if (parts.length < 2) return null;
+    const m = Number(parts[1]);
+    return Number.isInteger(m) && m >= 1 && m <= 12 ? m : null;
+  };
+
+  const startMonth = parseMonth(weather.forecastPeriod.startDate);
+  const endMonth = parseMonth(weather.forecastPeriod.endDate);
+  if (startMonth === null || endMonth === null) {
+    return {
+      aligned: false,
+      forecastStartMonth: startMonth,
+      forecastEndMonth: endMonth,
+    };
+  }
+
+  const aligned = plantingMonth === startMonth || plantingMonth === endMonth;
+  return {
+    aligned,
+    forecastStartMonth: startMonth,
+    forecastEndMonth: endMonth,
+  };
+}
+
 export function buildUnavailableWeatherAnalysis(
   locationLabel: string,
   coordinates: { latitude: number; longitude: number } | null,

@@ -64,7 +64,7 @@ export interface FarmProfile {
   preferredCrop: CropId;
   plantingMonth: number; // 1 = Jan .. 12 = Dec
   priorityMode: PriorityMode;
-  customWeights?: PreferenceWeights;
+  customWeights?: PreferenceWeights | null;
   isSampleProfile?: boolean;
 }
 
@@ -525,4 +525,123 @@ export interface BaselineReferenceContext {
     feasibilityStatus: string;
     score: number;
   }>;
+}
+
+export type FarmerMode = 'plan_season' | 'in_season';
+
+export type GrowthStageId =
+  | 'emergence'
+  | 'vegetative'
+  | 'flowering_tuber'
+  | 'grain_fill_bulking'
+  | 'ripening_harvest'
+  | 'unknown';
+
+export interface InSeasonCareInputs {
+  plantedCropId: CropId;
+  plantingDate: string; // YYYY-MM-DD
+  growthStage: GrowthStageId;
+  irrigationUsedM3: number;
+  conditionNotes: string;
+}
+
+export type InSeasonTriggerType =
+  | 'frost'
+  | 'heavy_rain'
+  | 'heat'
+  | 'dry_spell'
+  | 'humid_canopy'
+  | 'routine_check';
+
+export interface InSeasonDayFlag {
+  date: string;
+  tempMaxC: number;
+  tempMinC: number;
+  precipMm: number;
+  et0Mm: number;
+  isHeat: boolean;
+  isFrost: boolean;
+  isHeavyRain: boolean;
+  isDryDay: boolean;
+}
+
+export interface InSeasonActionItem {
+  id: string;
+  triggerType: InSeasonTriggerType;
+  priority: 'high' | 'moderate' | 'low';
+  title: BilingualText;
+  relevantDate: string;
+  forecastTrigger: BilingualText;
+  reason: BilingualText;
+  waterOrBudgetConsideration: BilingualText;
+  uncertaintyOrMissing: BilingualText;
+}
+
+export interface InSeasonDeterministicPlan {
+  evaluatedAt: string;
+  plantedCropId: CropId;
+  plantedCropNames: BilingualText;
+  plantingDate: string;
+  daysSincePlanting: number | null;
+  selectedGrowthStage: GrowthStageId;
+  estimatedStageFromDate: GrowthStageId | null;
+  isStageUncertainOrEstimated: boolean;
+  stageStatusNote: BilingualText;
+  waterBalance: {
+    allocatedWaterM3: number;
+    waterUsedM3: number;
+    remainingWaterM3: number;
+    allocationExceededByM3: number;
+    remainingWaterMmHa: number;
+  };
+  sevenDayStrip: InSeasonDayFlag[];
+  candidateActions: InSeasonActionItem[];
+  missingObservations: BilingualText[];
+  scopeDisclaimer: BilingualText;
+}
+
+export interface InSeasonDecisionOutput {
+  selectedActionIds: string[];
+  weeklySummary: string;
+  priorityFocus: string;
+  keyAssumptions: string[];
+  missingObservations: string[];
+  advisoryNotice: string;
+}
+
+export interface InSeasonCriticOutput {
+  verdict: 'pass' | 'review' | 'reject';
+  onlyCandidateActionsUsed: boolean;
+  waterLimitRespected: boolean;
+  growthStageUncertaintyFlagged: boolean;
+  missingSoilObservationsFlagged: boolean;
+  noUnsupportedClaims: boolean;
+  flags: Array<{
+    severity: 'critical' | 'warning' | 'note';
+    detail: string;
+  }>;
+  criticSummary: string;
+}
+
+export interface InSeasonEvaluationResponse {
+  runId: string;
+  language: AppLanguage;
+  completedAt: string;
+  farm: FarmProfile;
+  inputs: InSeasonCareInputs;
+  weather: WeatherForecastAnalysis;
+  plan: InSeasonDeterministicPlan;
+  decision: InSeasonDecisionOutput | null;
+  critic: InSeasonCriticOutput | null;
+  validationGate: ValidationGateResult | null;
+  requiresHumanReview: boolean;
+  modelsUsed: {
+    decisionAgent: string;
+    criticAgent: string;
+  };
+  aiError?: {
+    stage: string;
+    model: string;
+    message: string;
+  };
 }

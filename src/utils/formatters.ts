@@ -152,7 +152,56 @@ export function formatFeasibilityLabel(
   lang: AppLanguage = 'en'
 ): string {
   if (status === 'feasible') return lang === 'de' ? 'Machbar' : 'Feasible';
-  if (status === 'uncertain') return lang === 'de' ? 'Unsicher' : 'Uncertain';
+  if (status === 'uncertain') return lang === 'de' ? 'Vorläufig' : 'Preliminary';
+  return lang === 'de' ? 'Nicht machbar' : 'Infeasible';
+}
+
+export function formatCropFeasibilityDetail(
+  crop: CropSimulationResult,
+  lang: AppLanguage = 'en'
+): string {
+  if (crop.feasibilityStatus === 'feasible') {
+    if (crop.seasonalSuitability === 'shoulder') {
+      return lang === 'de' ? 'Machbar (Randmonat)' : 'Feasible (Shoulder)';
+    }
+    return lang === 'de' ? 'Machbar' : 'Feasible';
+  }
+  if (crop.feasibilityStatus === 'uncertain') {
+    return lang === 'de'
+      ? 'Vorläufig (Wetter offen)'
+      : 'Preliminary (Weather Pending)';
+  }
+
+  const failedSeason = crop.seasonalSuitability === 'out_of_season';
+  const failedWater = !crop.waterEvaluation.satisfiesWaterConstraint;
+  const failedBudget = !crop.financialEvaluation.satisfiesBudgetConstraint;
+  const failedSoil = crop.scores.soilCompatibility < 40;
+  const failedCount =
+    Number(failedSeason) +
+    Number(failedWater) +
+    Number(failedBudget) +
+    Number(failedSoil);
+
+  if (failedCount > 1) {
+    return lang === 'de'
+      ? 'Nicht machbar (Mehrere Grenzen)'
+      : 'Infeasible (Multiple Limits)';
+  }
+  if (failedSeason) {
+    return lang === 'de'
+      ? 'Nicht machbar (Saatzeit)'
+      : 'Infeasible (Out of Season)';
+  }
+  if (failedWater) {
+    return lang === 'de'
+      ? 'Nicht machbar (Wassergrenze)'
+      : 'Infeasible (Water Limit)';
+  }
+  if (failedBudget) {
+    return lang === 'de'
+      ? 'Nicht machbar (Budgetgrenze)'
+      : 'Infeasible (Budget Limit)';
+  }
   return lang === 'de' ? 'Nicht machbar' : 'Infeasible';
 }
 
@@ -220,12 +269,23 @@ export function deriveDashboardState(
     (c) => c.feasibilityStatus === 'uncertain'
   ).length;
 
-  const targetCropId: CropId | 'none' | null = evaluation?.decision
-    ? evaluation.decision.recommendedCropId
-    : simulation.topFeasibleCropId ??
-      (uncertainCount > 0 && feasibleCount === 0
-        ? simulation.cropResults[0]?.cropId ?? null
-        : null);
+  const aiRecommendedId = evaluation?.decision?.recommendedCropId ?? null;
+  const aiCropInCurrentSim =
+    aiRecommendedId && aiRecommendedId !== 'none'
+      ? simulation.cropResults.find((c) => c.cropId === aiRecommendedId) ?? null
+      : null;
+
+  const targetCropId: CropId | 'none' | null =
+    aiCropInCurrentSim && aiCropInCurrentSim.feasibilityStatus !== 'infeasible'
+      ? aiCropInCurrentSim.cropId
+      : aiRecommendedId === 'none' && feasibleCount === 0
+        ? 'none'
+        : simulation.topFeasibleCropId ??
+          (uncertainCount > 0 && feasibleCount === 0
+            ? simulation.cropResults.find(
+                (c) => c.feasibilityStatus === 'uncertain'
+              )?.cropId ?? null
+            : null);
 
   const recommendedCrop =
     targetCropId && targetCropId !== 'none'

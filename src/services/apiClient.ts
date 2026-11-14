@@ -5,6 +5,8 @@ import type {
   ClimateScenarioId,
   FarmProfile,
   GeocodingCandidate,
+  InSeasonCareInputs,
+  InSeasonEvaluationResponse,
   ScenarioParametersOverride,
   WeatherForecastAnalysis,
   WeatherThresholds,
@@ -88,3 +90,29 @@ export async function runFullAgenticEvaluation(params: {
 
   return data;
 }
+
+export async function runInSeasonAgenticEvaluation(params: {
+  farm: FarmProfile;
+  inputs: InSeasonCareInputs;
+  weatherThresholds: WeatherThresholds;
+  language: AppLanguage;
+}): Promise<InSeasonEvaluationResponse> {
+  const response = await fetch('/api/in-season-evaluate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+
+  const data = (await response.json()) as InSeasonEvaluationResponse & {
+    error?: string;
+  };
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || `In-season evaluation failed (HTTP ${response.status})`
+    );
+  }
+
+  return data;
+}
+

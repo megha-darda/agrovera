@@ -10,15 +10,29 @@ import {
 import deLocale from '../i18n/locales/de.json' with { type: 'json' };
 import enLocale from '../i18n/locales/en.json' with { type: 'json' };
 import {
+  beginEvaluationRequest,
+  createInitialEvaluationTracker,
+  invalidateEvaluationOnInputChange,
+  receiveEvaluationResponse,
+} from './evaluationState.ts';
+import {
   CROP_DATABASE,
   DEFAULT_SAMPLE_FARM,
   DEFAULT_WEATHER_THRESHOLDS,
   GERMAN_CITY_PRESETS,
   PRIORITY_WEIGHT_PRESETS,
 } from './presets.ts';
-import { simulateCrops, validateFarmProfile } from './simulator.ts';
+import {
+  computeProfitPotentialScore,
+  computeWaterEfficiencyScore,
+  computeWeightedSuitabilityScore,
+  normalizePreferenceWeights,
+  simulateCrops,
+  validateFarmProfile,
+} from './simulator.ts';
 import { runDeterministicValidationGate } from './validationGate.ts';
 import {
+  assessWeatherApplicability,
   fetchOpenMeteoWeather,
   parseOpenMeteoForecast,
   type OpenMeteoRawResponse,
@@ -71,6 +85,7 @@ test('1. Germany primary defaults: Karlsruhe, EUR (€), hectares (ha), m³ irri
     'karlsruhe',
     'munich',
     'stuttgart',
+    'cottbus',
     'freiburg',
     'berlin',
     'hamburg',
@@ -636,5 +651,805 @@ test('10. Complete rebranding & security audit: zero AgriSentinel references and
       false,
       `Client file ${file} must never reference GEMINI_API_KEY`
     );
+  }
+});
+
+test('11. REGRESSION 1: Changing Stuttgart to Cottbus immediately invalidates the Stuttgart recommendation and archives it as outdated', async () => {
+  const stuttgartPreset = GERMAN_CITY_PRESETS.find(
+    (c) => c.id === 'stuttgart'
+  )!;
+  const cottbusPreset = GERMAN_CITY_PRESETS.find((c) => c.id === 'cottbus')!;
+
+  const stuttgartFarm: FarmProfile = {
+    ...DEFAULT_SAMPLE_FARM,
+    locationName: `${stuttgartPreset.cityEn}, ${stuttgartPreset.state}, Germany`,
+    regionState: stuttgartPreset.state,
+    latitude: stuttgartPreset.latitude,
+    longitude: stuttgartPreset.longitude,
+    soilType: stuttgartPreset.typicalSoil,
+    isSampleProfile: false,
+  };
+
+  const cottbusFarm: FarmProfile = {
+    ...stuttgartFarm,
+    locationName: `${cottbusPreset.cityEn}, ${cottbusPreset.state}, Germany`,
+    regionState: cottbusPreset.state,
+    latitude: cottbusPreset.latitude,
+    longitude: cottbusPreset.longitude,
+    soilType: cottbusPreset.typicalSoil,
+  };
+
+  const mockFetch: typeof fetch = async () =>
+    new Response(JSON.stringify(MOCK_DWD_KARLSRUHE_RAW), { status: 200 });
+
+  const verifiedAdapter: AgentProviderAdapter = {
+    async runOrchestratorWorkflow({ scenarioId, executeSimulationTool }) {
+      const sim = executeSimulationTool(scenarioId);
+      return {
+        summary: `Evaluated Stuttgart (${sim.feasibleCropsCount}/4 feasible).`,
+        toolInvoked: true,
+      };
+    },
+    async runDecisionAgent({ simulation }) {
+      const topId = simulation.topFeasibleCropId ?? 'none';
+      return {
+        decision: {
+          recommendedCropId: topId,
+          decisionStatus: topId === 'none' ? 'no_feasible_crop' : 'recommended',
+          headline: `Stuttgart verified recommendation: ${topId}`,
+          executiveSummary:
+            'Grounded in Stuttgart silty soil simulation and current 7-day forecast.',
+          tradeoffAnalysis: {
+            financial: 'Within €42,000 budget.',
+            climateAndEnvironmental:
+              '7-day DWD forecast does not cover full growing season.',
+            waterAndSoilResources: 'Within 19,200 m³ supplemental irrigation.',
+          },
+          alternativeComparisons: simulation.cropResults
+            .filter((c) => c.cropId !== topId)
+            .map((c) => ({
+              cropId: c.cropId,
+              comparisonSummary: `${c.cropName} evaluated fairly.`,
+            })),
+          keyAssumptions: ['Destatis yield reference; illustrative EUR costs.'],
+          missingInformation: ['Field-specific Nmin lab soil test.'],
+          actionableNextSteps: ['Verify seed availability with local advisor.'],
+          humanReviewNotice:
+            'Consult Offizialberatung / Landwirtschaftskammer before sowing.',
+        },
+      };
+    },
+    async runCriticAgent({ simulation }) {
+      return {
+        verdict: 'pass',
+        hardConstraintsSatisfied: simulation.feasibleCropsCount > 0,
+        alternativesComparedFairly: true,
+        forecastUncertaintyCommunicated: true,
+        numericalClaimsSupported: true,
+        assumptionsConsistent: true,
+        moreRobustAlternativeId: 'none',
+        objections: [],
+        requestedRecalculation: {
+          needed: false,
+          targetScenarioId: 'none',
+          reason: 'All checks passed.',
+        },
+        criticSummary: 'Stuttgart recommendation verified.',
+      };
+    },
+  };
+
+  let tracker = createInitialEvaluationTracker(stuttgartFarm, 'baseline');
+  const { nextState: inFlightStuttgart, request: reqStuttgart } =
+    beginEvaluationRequest(tracker, stuttgartFarm, 'baseline', 'en');
+  tracker = inFlightStuttgart;
+
+  const stuttgartEval = await executeAgenticPipeline({
+    farm: stuttgartFarm,
+    scenarioId: 'baseline',
+    language: 'en',
+    evaluationId: reqStuttgart.evaluationId,
+    adapter: verifiedAdapter,
+    fetchImpl: mockFetch,
+  });
+
+  const received = receiveEvaluationResponse(
+    tracker,
+    reqStuttgart,
+    stuttgartEval
+  );
+  assert.equal(received.acceptedAsActive, true);
+  tracker = received.nextState;
+  assert.ok(tracker.activeEvaluation !== null);
+  assert.equal(
+    tracker.activeEvaluation?.validationGate?.hasVerifiedRecommendation,
+    true
+  );
+
+  // Switch farm from Stuttgart to Cottbus -> must immediately invalidate Stuttgart recommendation!
+  const afterCottbusSwitch = invalidateEvaluationOnInputChange(
+    tracker,
+    cottbusFarm,
+    'baseline'
+  );
+  assert.equal(afterCottbusSwitch.activeEvaluation, null);
+  assert.equal(afterCottbusSwitch.conditionsChangedSinceLastEvaluation, true);
+  assert.equal(afterCottbusSwitch.historicalEvaluations.length, 1);
+  assert.equal(
+    afterCottbusSwitch.historicalEvaluations[0].evaluationId,
+    reqStuttgart.evaluationId
+  );
+  assert.equal(
+    afterCottbusSwitch.historicalEvaluations[0].outdatedReason,
+    'farm_or_scenario_changed'
+  );
+  assert.ok(
+    afterCottbusSwitch.historicalEvaluations[0].inputSnapshot.farm.locationName.includes(
+      'Stuttgart'
+    )
+  );
+  assert.equal(
+    afterCottbusSwitch.historicalEvaluations[0].inputSnapshot.farm.soilType,
+    'Silty'
+  );
+
+  // Even if someone accidentally passes the old Stuttgart evaluation object into deriveDashboardState with Cottbus farm,
+  // deriveDashboardState MUST mark it outdated and NEVER show it as verified!
+  const cottbusSim = simulateCrops(cottbusFarm, null, 'baseline');
+  const derivedEn = deriveDashboardState(
+    cottbusFarm,
+    cottbusSim,
+    null,
+    stuttgartEval,
+    'en',
+    {
+      conditionsChangedSinceLastEvaluation:
+        afterCottbusSwitch.conditionsChangedSinceLastEvaluation,
+    }
+  );
+  assert.equal(derivedEn.isEvaluationOutdated, true);
+  assert.equal(derivedEn.hasVerifiedRecommendation, false);
+  assert.equal(derivedEn.hasAgenticRun, false);
+  assert.equal(
+    derivedEn.staleBannerMessage,
+    'Farm conditions changed — new analysis required'
+  );
+  assert.equal(
+    derivedEn.verificationLabel,
+    'Farm conditions changed — new analysis required'
+  );
+  assert.equal(derivedEn.activeHeadline.includes('Stuttgart'), false);
+});
+
+test('12. REGRESSION 2: An old in-flight API response cannot overwrite newer farm state', async () => {
+  const stuttgartPreset = GERMAN_CITY_PRESETS.find(
+    (c) => c.id === 'stuttgart'
+  )!;
+  const cottbusPreset = GERMAN_CITY_PRESETS.find((c) => c.id === 'cottbus')!;
+
+  const stuttgartFarm: FarmProfile = {
+    ...DEFAULT_SAMPLE_FARM,
+    locationName: `${stuttgartPreset.cityEn}, ${stuttgartPreset.state}, Germany`,
+    latitude: stuttgartPreset.latitude,
+    longitude: stuttgartPreset.longitude,
+    soilType: stuttgartPreset.typicalSoil,
+  };
+  const cottbusFarm: FarmProfile = {
+    ...DEFAULT_SAMPLE_FARM,
+    locationName: `${cottbusPreset.cityEn}, ${cottbusPreset.state}, Germany`,
+    latitude: cottbusPreset.latitude,
+    longitude: cottbusPreset.longitude,
+    soilType: cottbusPreset.typicalSoil,
+  };
+
+  const mockFetch: typeof fetch = async () =>
+    new Response(JSON.stringify(MOCK_DWD_KARLSRUHE_RAW), { status: 200 });
+
+  const fastStubAdapter: AgentProviderAdapter = {
+    async runOrchestratorWorkflow({ scenarioId, executeSimulationTool }) {
+      executeSimulationTool(scenarioId);
+      return { summary: 'Stub summary.', toolInvoked: true };
+    },
+    async runDecisionAgent({ farm, simulation }) {
+      const top = simulation.topFeasibleCropId ?? 'barley';
+      return {
+        decision: {
+          recommendedCropId: top,
+          decisionStatus: 'recommended',
+          headline: `Decision for ${farm.locationName}`,
+          executiveSummary: `Summary for ${farm.locationName}`,
+          tradeoffAnalysis: {
+            financial: 'OK',
+            climateAndEnvironmental: '7-day forecast horizon noted.',
+            waterAndSoilResources: 'OK',
+          },
+          alternativeComparisons: simulation.cropResults
+            .filter((c) => c.cropId !== top)
+            .map((c) => ({ cropId: c.cropId, comparisonSummary: 'Compared.' })),
+          keyAssumptions: ['Illustrative EUR costs.'],
+          missingInformation: ['Soil Nmin test.'],
+          actionableNextSteps: ['Consult advisor.'],
+          humanReviewNotice: 'Consult Landwirtschaftskammer advisor.',
+        },
+      };
+    },
+    async runCriticAgent() {
+      return {
+        verdict: 'pass',
+        hardConstraintsSatisfied: true,
+        alternativesComparedFairly: true,
+        forecastUncertaintyCommunicated: true,
+        numericalClaimsSupported: true,
+        assumptionsConsistent: true,
+        moreRobustAlternativeId: 'none',
+        objections: [],
+        requestedRecalculation: {
+          needed: false,
+          targetScenarioId: 'none',
+          reason: 'OK',
+        },
+        criticSummary: 'Verified.',
+      };
+    },
+  };
+
+  // 1. Start evaluation request #1 for Stuttgart
+  let state = createInitialEvaluationTracker(stuttgartFarm, 'baseline');
+  const { nextState: stateReq1, request: reqStuttgart } =
+    beginEvaluationRequest(state, stuttgartFarm, 'baseline', 'en');
+  state = stateReq1;
+
+  // 2. User switches inputs to Cottbus BEFORE Stuttgart API finishes!
+  state = invalidateEvaluationOnInputChange(state, cottbusFarm, 'baseline');
+  assert.equal(state.inFlightRequest, null);
+  assert.equal(state.conditionsChangedSinceLastEvaluation, true);
+
+  // 3. Delayed Stuttgart response arrives now -> MUST be rejected for active state!
+  const delayedStuttgartPayload = await executeAgenticPipeline({
+    farm: stuttgartFarm,
+    scenarioId: 'baseline',
+    evaluationId: reqStuttgart.evaluationId,
+    adapter: fastStubAdapter,
+    fetchImpl: mockFetch,
+  });
+
+  const staleArrival = receiveEvaluationResponse(
+    state,
+    reqStuttgart,
+    delayedStuttgartPayload
+  );
+  assert.equal(staleArrival.acceptedAsActive, false);
+  assert.equal(staleArrival.ignoredReason, 'inputs_changed');
+  assert.equal(staleArrival.nextState.activeEvaluation, null);
+  assert.equal(
+    staleArrival.nextState.conditionsChangedSinceLastEvaluation,
+    true
+  );
+  assert.equal(staleArrival.nextState.historicalEvaluations.length, 1);
+
+  // 4. Now Cottbus runs its own evaluation -> accepted cleanly as active!
+  const { nextState: stateReq2, request: reqCottbus } = beginEvaluationRequest(
+    staleArrival.nextState,
+    cottbusFarm,
+    'baseline',
+    'en'
+  );
+  const cottbusPayload = await executeAgenticPipeline({
+    farm: cottbusFarm,
+    scenarioId: 'baseline',
+    evaluationId: reqCottbus.evaluationId,
+    adapter: fastStubAdapter,
+    fetchImpl: mockFetch,
+  });
+  const cottbusArrival = receiveEvaluationResponse(
+    stateReq2,
+    reqCottbus,
+    cottbusPayload
+  );
+  assert.equal(cottbusArrival.acceptedAsActive, true);
+  assert.equal(
+    cottbusArrival.nextState.conditionsChangedSinceLastEvaluation,
+    false
+  );
+  assert.ok(
+    cottbusArrival.nextState.activeEvaluation?.inputSnapshot.farm.locationName.includes(
+      'Cottbus'
+    )
+  );
+});
+
+test('13. REGRESSION 3: Drought with zero feasible crops produces no verified recommendation, no hard-constraints-satisfied claim, and exact deterministic remediations', async () => {
+  const weather = parseOpenMeteoForecast(MOCK_DWD_KARLSRUHE_RAW, 'Karlsruhe');
+  const zeroFeasibleFarm: FarmProfile = {
+    ...DEFAULT_SAMPLE_FARM,
+    plantingMonth: 4, // April -> Winter Wheat out of season
+    availableWaterValue: 0, // 0 m³ -> Barley, Maize, Potato all fail supplemental irrigation under drought!
+  };
+
+  const sim = simulateCrops(zeroFeasibleFarm, weather, 'drought');
+  assert.equal(sim.feasibleCropsCount, 0);
+  assert.equal(sim.topFeasibleCropId, null);
+  assert.ok(sim.cropResults.every((c) => c.feasibilityStatus === 'infeasible'));
+
+  // Verify every crop's exclusion constraint and deterministic remediation
+  const wwRem = sim.constraintRemediation.find(
+    (r) => r.cropId === 'winter_wheat'
+  )!;
+  const barleyRem = sim.constraintRemediation.find(
+    (r) => r.cropId === 'barley'
+  )!;
+  const maizeRem = sim.constraintRemediation.find((r) => r.cropId === 'maize')!;
+  const potatoRem = sim.constraintRemediation.find(
+    (r) => r.cropId === 'potato'
+  )!;
+
+  assert.equal(wwRem.currentlyFeasible, false);
+  assert.ok(wwRem.excludedBy.includes('planting_window'));
+  assert.ok(wwRem.requiredValidMonthsLabel !== null);
+
+  for (const springRem of [barleyRem, maizeRem, potatoRem]) {
+    assert.equal(springRem.currentlyFeasible, false);
+    assert.ok(springRem.excludedBy.includes('irrigation_water'));
+    assert.ok(springRem.additionalWaterNeededM3 > 0);
+  }
+
+  // Verify dashboard derived state never calls any crop feasible or verified
+  const derived = deriveDashboardState(
+    zeroFeasibleFarm,
+    sim,
+    weather,
+    null,
+    'en'
+  );
+  assert.equal(derived.recommendedCrop, null);
+  assert.equal(derived.hasVerifiedRecommendation, false);
+  assert.equal(
+    derived.activeHeadline,
+    'No feasible crop under current constraints'
+  );
+  assert.equal(
+    derived.verificationLabel.toLowerCase().includes('satisfied'),
+    false
+  );
+  assert.equal(
+    derived.verificationLabel.toLowerCase().includes('verified'),
+    false
+  );
+
+  // Verify full pipeline abstention sets hardConstraintsSatisfied=false and hasVerifiedRecommendation=false
+  const mockFetch: typeof fetch = async () =>
+    new Response(JSON.stringify(MOCK_DWD_KARLSRUHE_RAW), { status: 200 });
+
+  const abstainingAdapter: AgentProviderAdapter = {
+    async runOrchestratorWorkflow({ scenarioId, executeSimulationTool }) {
+      executeSimulationTool(scenarioId);
+      return { summary: '0/4 feasible under drought.', toolInvoked: true };
+    },
+    async runDecisionAgent({ simulation }) {
+      return {
+        decision: {
+          recommendedCropId: 'none',
+          decisionStatus: 'no_feasible_crop',
+          headline: 'No feasible crop under current constraints',
+          executiveSummary:
+            'All four candidate crops violate at least one hard constraint (April sowing window or 0 m³ irrigation water under drought).',
+          tradeoffAnalysis: {
+            financial: 'No crop is feasible; direct costs were checked.',
+            climateAndEnvironmental:
+              '7-day DWD forecast is distinct from hypothetical drought stress.',
+            waterAndSoilResources:
+              '0 m³ supplemental irrigation cannot cover drought water deficits.',
+          },
+          alternativeComparisons: simulation.cropResults.map((c) => ({
+            cropId: c.cropId,
+            comparisonSummary: c.infeasibilityReasons.join(' '),
+          })),
+          keyAssumptions: ['Hypothetical drought scenario multipliers.'],
+          missingInformation: ['On-farm irrigation well capacity.'],
+          actionableNextSteps: simulation.constraintRemediation.map(
+            (r) => r.deterministicAdjustmentHint.en
+          ),
+          humanReviewNotice:
+            'Consult Offizialberatung / Landwirtschaftskammer before changing farm plan.',
+        },
+      };
+    },
+    async runCriticAgent() {
+      return {
+        verdict: 'review',
+        hardConstraintsSatisfied: true, // Even if LLM mistakenly returned true, pipeline MUST clamp it to false!
+        alternativesComparedFairly: true,
+        forecastUncertaintyCommunicated: true,
+        numericalClaimsSupported: true,
+        assumptionsConsistent: true,
+        moreRobustAlternativeId: 'none',
+        objections: [],
+        requestedRecalculation: {
+          needed: false,
+          targetScenarioId: 'none',
+          reason: 'Honest abstention.',
+        },
+        criticSummary: 'Confirmed zero crops pass hard constraints.',
+      };
+    },
+  };
+
+  const evalZero = await executeAgenticPipeline({
+    farm: zeroFeasibleFarm,
+    scenarioId: 'drought',
+    adapter: abstainingAdapter,
+    fetchImpl: mockFetch,
+  });
+
+  assert.equal(evalZero.decision?.recommendedCropId, 'none');
+  assert.equal(evalZero.critic?.hardConstraintsSatisfied, false);
+  assert.equal(evalZero.validationGate?.hasVerifiedRecommendation, false);
+  assert.equal(
+    evalZero.validationGate?.outcomeStatus,
+    'valid_abstention_no_feasible_crop'
+  );
+  assert.equal(evalZero.requiresHumanReview, true);
+
+  const derivedWithEval = deriveDashboardState(
+    zeroFeasibleFarm,
+    evalZero.simulation,
+    evalZero.weather,
+    evalZero,
+    'en'
+  );
+  assert.equal(derivedWithEval.recommendedCrop, null);
+  assert.equal(derivedWithEval.hasVerifiedRecommendation, false);
+  assert.equal(
+    derivedWithEval.activeHeadline,
+    'No feasible crop under current constraints'
+  );
+
+  // Also verify that forcing a crop recommendation when 0 crops are feasible is strictly REJECTED by deterministic gate
+  const forcedGate = runDeterministicValidationGate(
+    {
+      ...evalZero.decision!,
+      recommendedCropId: 'barley',
+      decisionStatus: 'recommended',
+    },
+    evalZero.critic!,
+    evalZero.simulation,
+    evalZero.weather
+  );
+  assert.equal(forcedGate.passed, false);
+  assert.equal(forcedGate.hasVerifiedRecommendation, false);
+});
+
+test('14. REGRESSION 4: April planning does NOT consume an unrelated November 7-day forecast as seasonal rainfall or sowing frost, and validation gate flags off-season weather misuse', () => {
+  const novStormyFrostyRaw: OpenMeteoRawResponse = {
+    latitude: 49.01,
+    longitude: 8.4,
+    elevation: 118,
+    timezone: 'Europe/Berlin',
+    daily: {
+      time: [
+        '2026-11-14',
+        '2026-11-15',
+        '2026-11-16',
+        '2026-11-17',
+        '2026-11-18',
+        '2026-11-19',
+        '2026-11-20',
+      ],
+      temperature_2m_max: [6.0, 5.2, 4.1, 3.8, 5.0, 6.4, 7.1],
+      temperature_2m_min: [-3.2, -4.5, -2.8, -1.9, 0.5, 1.2, 0.8],
+      precipitation_sum: [14.0, 28.0, 12.0, 6.0, 4.0, 2.0, 2.0], // 68 mm Nov rain!
+      et0_fao_evapotranspiration: [0.6, 0.5, 0.4, 0.5, 0.6, 0.7, 0.7],
+    },
+  };
+
+  const novDryMildRaw: OpenMeteoRawResponse = {
+    ...novStormyFrostyRaw,
+    daily: {
+      ...novStormyFrostyRaw.daily,
+      temperature_2m_max: [14.0, 14.5, 15.0, 14.2, 13.8, 14.1, 14.4],
+      temperature_2m_min: [8.5, 9.0, 9.2, 8.8, 8.4, 8.9, 9.1],
+      precipitation_sum: [0, 0, 0, 0, 0, 0, 0], // 0 mm Nov rain!
+    },
+  };
+
+  const novStormyWeather = parseOpenMeteoForecast(
+    novStormyFrostyRaw,
+    'Karlsruhe'
+  );
+  const novDryMildWeather = parseOpenMeteoForecast(
+    novDryMildRaw,
+    'Karlsruhe'
+  );
+
+  // Verify applicability classification for April planting (month 4) vs November forecast (month 11)
+  const applicability = assessWeatherApplicability(novStormyWeather, 4);
+  assert.equal(applicability.status, 'current_field_weather_only');
+  assert.equal(applicability.isApplicableToPlantingWindow, false);
+  assert.equal(applicability.usedInSeasonalWaterBalance, false);
+  assert.equal(applicability.usedInNearTermSowingRisk, false);
+  assert.equal(applicability.forecastStartDate, '2026-11-14');
+  assert.equal(applicability.forecastEndDate, '2026-11-20');
+
+  const aprilSimWithStormyNov = simulateCrops(
+    DEFAULT_SAMPLE_FARM,
+    novStormyWeather,
+    'baseline'
+  );
+  const aprilSimWithDryNov = simulateCrops(
+    DEFAULT_SAMPLE_FARM,
+    novDryMildWeather,
+    'baseline'
+  );
+
+  for (const crop of aprilSimWithStormyNov.cropResults) {
+    // Zero short-term rain credited into seasonal water balance
+    assert.equal(crop.waterEvaluation.nearTermSeedbedPrecipCreditMmHa, 0);
+
+    const peer = aprilSimWithDryNov.cropResults.find(
+      (c) => c.cropId === crop.cropId
+    )!;
+    assert.equal(
+      crop.waterEvaluation.additionalIrrigationRequiredM3,
+      peer.waterEvaluation.additionalIrrigationRequiredM3
+    );
+    assert.equal(
+      crop.riskProfile.frostRiskScore,
+      peer.riskProfile.frostRiskScore
+    );
+    assert.equal(
+      crop.financialEvaluation.totalFarmYieldTons.expected,
+      peer.financialEvaluation.totalFarmYieldTons.expected
+    );
+    assert.equal(
+      crop.scores.weightedSuitability,
+      peer.scores.weightedSuitability
+    );
+  }
+
+  // Deterministic validation gate MUST flag off-season weather misuse if Decision credits November rain to April seasonal water
+  const badDecision: DecisionAgentOutput = {
+    recommendedCropId: aprilSimWithStormyNov.topFeasibleCropId!,
+    decisionStatus: 'recommended',
+    headline: 'Recommended crop for April',
+    executiveSummary:
+      'The 7-day forecast rain reduces seasonal irrigation requirement for April planting.',
+    tradeoffAnalysis: {
+      financial: 'Within budget.',
+      climateAndEnvironmental:
+        'Forecast precipitation credited to seasonal water balance.',
+      waterAndSoilResources: 'Adequate water.',
+    },
+    alternativeComparisons: aprilSimWithStormyNov.cropResults
+      .filter((c) => c.cropId !== aprilSimWithStormyNov.topFeasibleCropId)
+      .map((c) => ({ cropId: c.cropId, comparisonSummary: 'Compared.' })),
+    keyAssumptions: ['Illustrative EUR costs.'],
+    missingInformation: ['Soil Nmin test.'],
+    actionableNextSteps: ['Consult advisor.'],
+    humanReviewNotice: 'Consult Landwirtschaftskammer advisor.',
+  };
+
+  const lenientCritic: CriticAgentOutput = {
+    verdict: 'pass',
+    hardConstraintsSatisfied: true,
+    alternativesComparedFairly: true,
+    forecastUncertaintyCommunicated: true,
+    numericalClaimsSupported: true,
+    assumptionsConsistent: true,
+    moreRobustAlternativeId: 'none',
+    objections: [],
+    requestedRecalculation: {
+      needed: false,
+      targetScenarioId: 'none',
+      reason: 'None',
+    },
+    criticSummary: 'Passed.',
+  };
+
+  const gateResult = runDeterministicValidationGate(
+    badDecision,
+    lenientCritic,
+    aprilSimWithStormyNov,
+    novStormyWeather
+  );
+  const weatherCheck = gateResult.checks.find(
+    (chk) => chk.code === 'WEATHER_SEASONAL_APPLICABILITY'
+  )!;
+  assert.equal(weatherCheck.passed, false);
+  assert.equal(gateResult.passed, false);
+});
+
+test('15. REGRESSION 5: Priority weights normalize to 1.0, keep all components in [0, 100], increase Potato under Maximum Potential Profit without lowering all crops, and never override hard constraints', () => {
+  // 1. Unit test weight normalization directly
+  for (const preset of Object.values(PRIORITY_WEIGHT_PRESETS)) {
+    const norm = normalizePreferenceWeights(preset);
+    const sum =
+      norm.profit +
+      norm.climateResilience +
+      norm.waterEfficiency +
+      norm.soilMatch;
+    assert.ok(Math.abs(sum - 1) <= 1e-6, `Normalized sum ${sum} !== 1`);
+  }
+  const arbitraryNorm = normalizePreferenceWeights({
+    profit: 0.9,
+    climateResilience: 0.3,
+    waterEfficiency: 0.2,
+    soilMatch: 0.1,
+  });
+  assert.ok(
+    Math.abs(
+      arbitraryNorm.profit +
+        arbitraryNorm.climateResilience +
+        arbitraryNorm.waterEfficiency +
+        arbitraryNorm.soilMatch -
+        1
+    ) <= 1e-6
+  );
+
+  // 2. Unit test pure component & total suitability helpers directly
+  const pPotato = computeProfitPotentialScore(7400, 235);
+  const pBarley = computeProfitPotentialScore(690, 97);
+  const pLoss = computeProfitPotentialScore(-300, -25);
+  assert.ok(pPotato > pBarley && pPotato <= 100);
+  assert.ok(pBarley >= 60 && pBarley <= 85);
+  assert.ok(pLoss >= 0 && pLoss < 35);
+
+  const wBarley = computeWaterEfficiencyScore(0, 160);
+  const wPotato = computeWaterEfficiencyScore(109, 51);
+  assert.ok(wBarley > wPotato && wBarley <= 100 && wPotato >= 0);
+
+  const exactWeighted = computeWeightedSuitabilityScore(
+    {
+      soilCompatibility: 90,
+      climateResilience: 80,
+      waterEfficiency: 70,
+      profitPotential: 95,
+    },
+    PRIORITY_WEIGHT_PRESETS.max_profit
+  );
+  const expectedConvex =
+    Math.round((95 * 0.55 + 80 * 0.15 + 70 * 0.15 + 90 * 0.15) * 10) / 10;
+  assert.equal(exactWeighted, expectedConvex);
+
+  // 3. End-to-end priority mode behavior on Karlsruhe April farm
+  const karlsruheWeather = parseOpenMeteoForecast(
+    MOCK_DWD_KARLSRUHE_RAW,
+    'Karlsruhe'
+  );
+  const simBalanced = simulateCrops(
+    { ...DEFAULT_SAMPLE_FARM, priorityMode: 'balanced' },
+    karlsruheWeather,
+    'baseline'
+  );
+  const simMaxProfit = simulateCrops(
+    { ...DEFAULT_SAMPLE_FARM, priorityMode: 'max_profit' },
+    karlsruheWeather,
+    'baseline'
+  );
+  const simMinWater = simulateCrops(
+    { ...DEFAULT_SAMPLE_FARM, priorityMode: 'min_water' },
+    karlsruheWeather,
+    'baseline'
+  );
+  const simMinRisk = simulateCrops(
+    { ...DEFAULT_SAMPLE_FARM, priorityMode: 'min_climate_risk' },
+    karlsruheWeather,
+    'baseline'
+  );
+
+  for (const run of [simBalanced, simMaxProfit, simMinWater, simMinRisk]) {
+    for (const c of run.cropResults) {
+      assert.equal(c.scores.preferredCropBonus, 0);
+      assert.ok(c.scores.soilCompatibility >= 0 && c.scores.soilCompatibility <= 100);
+      assert.ok(c.scores.climateResilience >= 0 && c.scores.climateResilience <= 100);
+      assert.ok(c.scores.waterEfficiency >= 0 && c.scores.waterEfficiency <= 100);
+      assert.ok(c.scores.profitPotential >= 0 && c.scores.profitPotential <= 100);
+      assert.ok(
+        c.scores.weightedSuitability >= 0 && c.scores.weightedSuitability <= 100
+      );
+
+      const recomputed =
+        c.scores.profitPotential * run.weightsNormalized.profit +
+        c.scores.climateResilience * run.weightsNormalized.climateResilience +
+        c.scores.waterEfficiency * run.weightsNormalized.waterEfficiency +
+        c.scores.soilCompatibility * run.weightsNormalized.soilMatch;
+      assert.ok(
+        Math.abs(c.scores.weightedSuitability - recomputed) <= 0.15,
+        `Suitability ${c.scores.weightedSuitability} deviates from convex sum ${recomputed}`
+      );
+    }
+  }
+
+  // Maximum Potential Profit MUST increase Potato's suitability compared to Balanced and rank Potato #1!
+  const potatoBal = simBalanced.cropResults.find(
+    (c) => c.cropId === 'potato'
+  )!;
+  const potatoMaxP = simMaxProfit.cropResults.find(
+    (c) => c.cropId === 'potato'
+  )!;
+  assert.ok(
+    potatoMaxP.scores.weightedSuitability >
+      potatoBal.scores.weightedSuitability,
+    `Expected Potato max_profit score (${potatoMaxP.scores.weightedSuitability}) > balanced (${potatoBal.scores.weightedSuitability})`
+  );
+  assert.equal(simMaxProfit.topFeasibleCropId, 'potato');
+
+  // Minimum Water Usage and Minimum Climate Risk rank Barley #1!
+  const barleyBal = simBalanced.cropResults.find(
+    (c) => c.cropId === 'barley'
+  )!;
+  const barleyMinW = simMinWater.cropResults.find(
+    (c) => c.cropId === 'barley'
+  )!;
+  assert.ok(
+    barleyMinW.scores.weightedSuitability >
+      barleyBal.scores.weightedSuitability
+  );
+  assert.equal(simMinWater.topFeasibleCropId, 'barley');
+  assert.equal(simMinRisk.topFeasibleCropId, 'barley');
+
+  // Hard constraints stay strictly independent of soft scores: Potato infeasible under €12,000 budget even with max_profit!
+  const constrainedMaxProfit = simulateCrops(
+    { ...DEFAULT_SAMPLE_FARM, priorityMode: 'max_profit', budgetAmount: 12000 },
+    karlsruheWeather,
+    'baseline'
+  );
+  const constrainedPotato = constrainedMaxProfit.cropResults.find(
+    (c) => c.cropId === 'potato'
+  )!;
+  assert.equal(constrainedPotato.feasibilityStatus, 'infeasible');
+  assert.equal(constrainedMaxProfit.topFeasibleCropId, 'barley');
+});
+
+test('16. REGRESSION 6: Existing baseline Karlsruhe farm water-balance and financial calculations remain internally consistent', () => {
+  const karlsruheWeather = parseOpenMeteoForecast(
+    MOCK_DWD_KARLSRUHE_RAW,
+    'Karlsruhe'
+  );
+  const sim = simulateCrops(DEFAULT_SAMPLE_FARM, karlsruheWeather, 'baseline');
+
+  // 19,200 m³ across 12 ha = 160 mm/ha (1 mm/ha = 10 m³/ha)
+  assert.equal(sim.farmSummary.areaHa, 12);
+  assert.equal(sim.farmSummary.availableIrrigationTotalM3, 19200);
+  assert.equal(sim.farmSummary.availableIrrigationMmHa, 160);
+  assert.equal(sim.farmSummary.budgetInSelectedCurrency, 42000);
+  assert.equal(sim.feasibleCropsCount, 3); // Potato, Barley, Maize in April; Winter Wheat out of season
+
+  for (const crop of sim.cropResults) {
+    const w = crop.waterEvaluation;
+    const f = crop.financialEvaluation;
+
+    // Water balance identities
+    const expectedAddMm = Math.max(
+      0,
+      Math.round(
+        (w.scenarioTotalCropDemandMmHa - w.estimatedEffectiveSeasonRainMmHa) *
+          10
+      ) / 10
+    );
+    assert.ok(Math.abs(w.additionalIrrigationRequiredMmHa - expectedAddMm) <= 0.11);
+    assert.equal(
+      w.additionalIrrigationRequiredM3,
+      Math.round(w.additionalIrrigationRequiredMmHa * 10 * sim.farmSummary.areaHa)
+    );
+    assert.equal(
+      w.irrigationSurplusOrDeficitM3,
+      w.availableIrrigationTotalM3 - w.additionalIrrigationRequiredM3
+    );
+
+    // Financial identities
+    assert.equal(
+      f.totalFarmInputCost,
+      Math.round(f.inputCostPerHa * sim.farmSummary.areaHa)
+    );
+    assert.equal(
+      f.budgetSurplusOrDeficit,
+      Math.round(f.availableFarmBudget - f.totalFarmInputCost)
+    );
+    assert.equal(
+      f.netProfitRange.expected,
+      f.grossRevenueRange.expected - f.totalFarmInputCost
+    );
+    assert.ok(f.netProfitRange.low <= f.netProfitRange.expected);
+    assert.ok(f.netProfitRange.expected <= f.netProfitRange.high);
   }
 });

@@ -25,9 +25,9 @@ import type {
   SimulationRunOutput,
 } from '../types/domain.ts';
 import {
+  formatCropFeasibilityDetail,
   formatCropName,
   formatCurrency,
-  formatFeasibilityLabel,
   formatNumber,
   formatPriorityLabel,
   pickBilingual,
@@ -46,7 +46,7 @@ interface ScenarioAnalysisViewProps {
   };
   currentEvaluation: AgenticEvaluationResponse | null;
   isEvaluating: boolean;
-  onSelectScenarioAndEvaluate: (nextScenario: ClimateScenarioId) => void;
+  onSelectScenario: (nextScenario: ClimateScenarioId) => void;
   onUpdateScenarioOverride: (
     nextOverride: ScenarioParametersOverride | undefined
   ) => void;
@@ -75,7 +75,7 @@ export const ScenarioAnalysisView: React.FC<ScenarioAnalysisViewProps> = ({
   baselineSnapshot,
   currentEvaluation,
   isEvaluating,
-  onSelectScenarioAndEvaluate,
+  onSelectScenario,
   onUpdateScenarioOverride,
   onUpdateScenarioControls,
   onRunScenarioEvaluation,
@@ -93,12 +93,9 @@ export const ScenarioAnalysisView: React.FC<ScenarioAnalysisViewProps> = ({
 
   const isSyncedWithAgents =
     Boolean(currentEvaluation) &&
-    currentEvaluation?.scenarioId === scenarioId &&
-    currentEvaluation?.farm.availableWaterValue === farm.availableWaterValue &&
-    currentEvaluation?.farm.budgetAmount === farm.budgetAmount &&
-    currentEvaluation?.farm.priorityMode === farm.priorityMode &&
-    currentEvaluation?.language === lang &&
-    !scenarioOverride;
+    !currentEvaluation?.aiError &&
+    Boolean(currentEvaluation?.decision) &&
+    currentEvaluation?.language === lang;
 
   const revisedRecommendedId =
     isSyncedWithAgents && currentEvaluation?.decision
@@ -170,8 +167,8 @@ export const ScenarioAnalysisView: React.FC<ScenarioAnalysisViewProps> = ({
                 <button
                   key={id}
                   type="button"
-                  onClick={() => onSelectScenarioAndEvaluate(id)}
-                  disabled={isEvaluating}
+                  onClick={() => onSelectScenario(id)}
+                  aria-pressed={selected}
                   className={`text-left p-3.5 rounded-lg border transition-colors cursor-pointer ${
                     selected
                       ? 'border-emerald-700 bg-[#F2F7F4]'
@@ -517,13 +514,9 @@ export const ScenarioAnalysisView: React.FC<ScenarioAnalysisViewProps> = ({
             {t('scenarios.sideBySideTitle')}
           </h2>
           {!isSyncedWithAgents && !isEvaluating && (
-            <button
-              type="button"
-              onClick={onRunScenarioEvaluation}
-              className="text-xs font-semibold text-amber-800 hover:text-amber-950 underline cursor-pointer"
-            >
+            <span className="text-xs font-medium text-amber-800">
               {t('scenarios.unsyncedPrompt')}
-            </button>
+            </span>
           )}
         </div>
 
@@ -564,8 +557,16 @@ export const ScenarioAnalysisView: React.FC<ScenarioAnalysisViewProps> = ({
                     <span className="font-medium text-stone-800">
                       #{i + 1} {pickBilingual(c.cropNames, lang)}
                     </span>
-                    <span className="font-mono tabular-nums text-stone-600">
-                      {formatFeasibilityLabel(c.feasibilityStatus, lang)} ·{' '}
+                    <span
+                      className={`font-mono tabular-nums ${
+                        c.feasibilityStatus === 'feasible'
+                          ? 'text-emerald-800 font-medium'
+                          : c.feasibilityStatus === 'uncertain'
+                            ? 'text-amber-700'
+                            : 'text-red-700'
+                      }`}
+                    >
+                      {formatCropFeasibilityDetail(c, lang)} ·{' '}
                       {formatNumber(c.scores.weightedSuitability, lang, 1)}
                     </span>
                   </div>
@@ -637,10 +638,12 @@ export const ScenarioAnalysisView: React.FC<ScenarioAnalysisViewProps> = ({
                       className={`font-mono tabular-nums ${
                         c.feasibilityStatus === 'feasible'
                           ? 'text-emerald-800 font-medium'
-                          : 'text-red-700'
+                          : c.feasibilityStatus === 'uncertain'
+                            ? 'text-amber-700'
+                            : 'text-red-700'
                       }`}
                     >
-                      {formatFeasibilityLabel(c.feasibilityStatus, lang)} ·{' '}
+                      {formatCropFeasibilityDetail(c, lang)} ·{' '}
                       {formatNumber(c.scores.weightedSuitability, lang, 1)}
                     </span>
                   </div>

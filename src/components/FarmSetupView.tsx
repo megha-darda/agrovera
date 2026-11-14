@@ -14,7 +14,6 @@ import {
   GERMAN_CITY_PRESETS,
   MONTH_NAMES_DE,
   MONTH_NAMES_EN,
-  PRIORITY_WEIGHT_PRESETS,
   SAMPLE_FARM_PRESETS,
   type GermanCityPreset,
 } from '../engine/presets.ts';
@@ -655,7 +654,7 @@ export const FarmSetupView: React.FC<FarmSetupViewProps> = ({
                     setDraft((prev) => ({
                       ...prev,
                       priorityMode: id,
-                      customWeights: PRIORITY_WEIGHT_PRESETS[id],
+                      customWeights: null,
                       isSampleProfile: false,
                     }))
                   }

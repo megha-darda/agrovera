@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import {
   executeAgenticPipeline,
+  executeInSeasonAgenticPipeline,
   MODEL_CRITIC_AGENT,
   MODEL_DECISION_AGENT,
   MODEL_ORCHESTRATOR,
@@ -22,6 +23,7 @@ import type {
   AppLanguage,
   ClimateScenarioId,
   FarmProfile,
+  InSeasonCareInputs,
   ScenarioParametersOverride,
   WeatherThresholds,
 } from './src/types/domain.ts';
@@ -184,6 +186,49 @@ async function startServer() {
         err instanceof Error
           ? err.message
           : 'Unexpected error during agentic evaluation.';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // In-Season Care 7-Day Agentic Verification Pipeline
+  app.post('/api/in-season-evaluate', async (req, res) => {
+    const {
+      farm,
+      inputs,
+      weatherThresholds,
+      language = 'en',
+    } = req.body as {
+      farm?: FarmProfile;
+      inputs?: InSeasonCareInputs;
+      weatherThresholds?: WeatherThresholds;
+      language?: AppLanguage;
+    };
+
+    const normalizedLang: AppLanguage = language === 'de' ? 'de' : 'en';
+
+    if (!farm || !inputs) {
+      res.status(400).json({
+        error:
+          normalizedLang === 'de'
+            ? 'Betriebsdaten und Bestandesangaben sind erforderlich.'
+            : 'Farm profile and in-season crop inputs are required.',
+      });
+      return;
+    }
+
+    try {
+      const result = await executeInSeasonAgenticPipeline({
+        farm,
+        inputs,
+        weatherThresholds: weatherThresholds ?? DEFAULT_WEATHER_THRESHOLDS,
+        language: normalizedLang,
+      });
+      res.json(result);
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Unexpected error during in-season evaluation.';
       res.status(500).json({ error: message });
     }
   });
