@@ -1,0 +1,676 @@
+{
+  "version": "2.0.0-de",
+  "regionFocus": "Germany (Deutschland)",
+  "defaultTimezone": "Europe/Berlin",
+  "illustrativeDisclaimer": {
+    "en": "National reference yields cite published Statistisches Bundesamt (Destatis, 2024–2025) harvest reports. Variable input costs (EUR/ha), farmgate price ranges (EUR/t), and supplemental irrigation parameters are illustrative planning estimates structured after LfL / LTZ Augustenberg gross-margin conventions and vary by farm, cultivar, and spot market.",
+    "de": "Die nationalen Referenzerträge stützen sich auf veröffentlichte Erntestatistiken des Statistischen Bundesamtes (Destatis, 2024–2025). Variable Direktkosten (EUR/ha), Erzeugerpreisspannen (EUR/t) und Zusatzbewässerungswerte sind exemplarische Planungsrichtwerte in Anlehnung an die Deckungsbeitragssystematik (LfL / LTZ Augustenberg) und variieren je nach Betrieb, Sorte und Marktpreis."
+  },
+  "exchangeRatesPerEurIllustrative": {
+    "EUR": 1,
+    "USD": 1.08
+  },
+  "crops": [
+    {
+      "id": "winter_wheat",
+      "name": "Winter Wheat",
+      "names": {
+        "en": "Winter Wheat",
+        "de": "Winterweizen"
+      },
+      "scientificName": "Triticum aestivum",
+      "category": {
+        "en": "Autumn-Sown Bread & Feed Cereal",
+        "de": "Wintergetreide (Brot- & Futterweizen)"
+      },
+      "applicableGermanRegions": {
+        "en": "Baden-Württemberg (Kraichgau, Upper Rhine), Bavaria, Lower Saxony, Saxony-Anhalt, Schleswig-Holstein",
+        "de": "Baden-Württemberg (Kraichgau, Oberrhein), Bayern, Niedersachsen, Sachsen-Anhalt, Schleswig-Holstein"
+      },
+      "recommendedSoilConditions": {
+        "en": "Deep, nutrient-rich loamy and silty soils (Parabraunerde, Lösslehm) with good water-holding capacity; moderate performance on pure sand.",
+        "de": "Tiefgründige, nährstoffreiche Lehm- und Schluffböden (Parabraunerde, Lössstandorte) mit hoher nutzbarer Feldkapazität; geringeres Ertragspotenzial auf leichten Sandböden."
+      },
+      "plantingWindow": {
+        "optimalMonths": [10, 11],
+        "shoulderMonths": [9, 12],
+        "label": {
+          "en": "October – November (shoulder: late Sep / early Dec)",
+          "de": "Oktober – November (Randfenster: Ende Sep. / Anfang Dez.)"
+        }
+      },
+      "harvestWindow": {
+        "months": [7, 8],
+        "label": {
+          "en": "July – August",
+          "de": "Juli – August"
+        }
+      },
+      "growingDurationDays": {
+        "min": 265,
+        "max": 305
+      },
+      "soilCompatibility": {
+        "Loamy": 96,
+        "Silty": 92,
+        "Clay": 80,
+        "Sandy": 54
+      },
+      "seasonalWaterMmHa": {
+        "totalDemandMin": 410,
+        "totalDemandOptimal": 490,
+        "typicalGermanSeasonRainMm": 415,
+        "supplementalIrrigationMin": 0,
+        "supplementalIrrigationOptimal": 55,
+        "waterloggingRainLimit": 720
+      },
+      "inputCostsEurPerHa": {
+        "seedAndPlanting": 165,
+        "fertilizerAndProtection": 475,
+        "machineryDryingAndIrrigation": 240,
+        "total": 880,
+        "classification": "illustrative_estimate"
+      },
+      "indicativeYieldTonsPerHa": {
+        "destatisNationalAvgTonsHa": 7.83,
+        "low": 6.1,
+        "base": 7.83,
+        "high": 9.2,
+        "classification": "verified_source"
+      },
+      "indicativeMarketPriceEurPerTon": {
+        "low": 185,
+        "base": 215,
+        "high": 250,
+        "classification": "illustrative_estimate"
+      },
+      "climateSensitivity": {
+        "heat": 0.48,
+        "frost": 0.22,
+        "drought": 0.44,
+        "excessRain": 0.56,
+        "optimalTempRangeC": [10, 24],
+        "heatStressThresholdC": 31,
+        "frostStressThresholdC": -15
+      },
+      "sources": {
+        "yieldStatistics": {
+          "sourceName": "Statistisches Bundesamt (Destatis) — Feldfrüchte und Grünland Erntestatistik",
+          "sourceUrl": "https://www.destatis.de/DE/Themen/Branchen-Unternehmen/Landwirtschaft-Forstwirtschaft-Fischerei/Feldfruechte-Gruenland/_inhalt.html",
+          "publicationYear": "2025",
+          "retrievalDate": "2026-11-14",
+          "classification": "verified_source",
+          "note": {
+            "en": "Published German national average wheat yield: 78.3 dt/ha (7.83 t/ha) in 2025; 70.8 dt/ha in 2024.",
+            "de": "Veröffentlichter bundesweiter Durchschnittsertrag Weizen: 78,3 dt/ha (7,83 t/ha) 2025; 70,8 dt/ha 2024."
+          }
+        },
+        "cultivationGuidance": {
+          "sourceName": "LTZ Augustenberg — Pflanzenbau & Sorteninformationen Winterweizen",
+          "sourceUrl": "https://ltz.landwirtschaft-bw.de",
+          "publicationYear": "2025",
+          "retrievalDate": "2026-11-14",
+          "classification": "verified_source",
+          "note": {
+            "en": "Autumn sowing window (Oct–Nov) required for winter vernalization in Baden-Württemberg and German arable regions.",
+            "de": "Herbstaussaat (Okt.–Nov.) erforderlich zur Vernalisation in Baden-Württemberg und deutschen Ackerbauregionen."
+          }
+        },
+        "economicAssumptions": {
+          "sourceName": "Illustrative planning estimate aligned with LfL Deckungsbeiträge cost categories",
+          "sourceUrl": "https://www.stmelf.bayern.de/idb/",
+          "publicationYear": "2025/2026",
+          "retrievalDate": "2026-11-14",
+          "classification": "illustrative_estimate",
+          "note": {
+            "en": "Variable direct costs (€880/ha) and producer price band (€185–€250/t) are illustrative planning assumptions, not live BLE/market quotes.",
+            "de": "Variable Direktkosten (880 €/ha) und Erzeugerpreisspanne (185–250 €/t) sind exemplarische Planungsannahmen, keine Live-Marktnotierungen."
+          }
+        }
+      },
+      "agronomicNotes": [
+        {
+          "en": "Requires autumn sowing (Oct–Nov) for winter vernalization; cannot be planted as winter wheat in spring.",
+          "de": "Benötigt Herbstaussaat (Okt.–Nov.) zur Vernalisation; eine Frühjahrsaussaat von Winterweizen ist pflanzenbaulich ausgeschlossen."
+        },
+        {
+          "en": "Utilizes winter soil moisture efficiently, normally requiring zero supplemental irrigation except during severe spring droughts.",
+          "de": "Nutzt die Winterbodenfeuchte effizient aus und benötigt im Regelfall keine Zusatzberegnung außer bei ausgeprägter Frühjahrstrockenheit."
+        }
+      ]
+    },
+    {
+      "id": "barley",
+      "name": "Barley",
+      "names": {
+        "en": "Barley",
+        "de": "Gerste"
+      },
+      "scientificName": "Hordeum vulgare",
+      "category": {
+        "en": "Spring Malting & Winter Feed Barley",
+        "de": "Sommerbraugerste & Wintergerste"
+      },
+      "applicableGermanRegions": {
+        "en": "Baden-Württemberg (Tauberfranken, Kraichgau), Rhineland-Palatinate, Bavaria, Thuringia, Nationwide",
+        "de": "Baden-Württemberg (Tauberfranken, Kraichgau), Rheinland-Pfalz, Bayern, Thüringen, bundesweit"
+      },
+      "recommendedSoilConditions": {
+        "en": "Well-aerated loamy, silty, and lighter sandy-loam soils; spring malting barley tolerates drier sites better than wheat.",
+        "de": "Gut durchlüftete Lehm-, Schluff- und leichtere Sandlehmböden; Sommergerste verträgt trockenere Standorte besser als Weizen."
+      },
+      "plantingWindow": {
+        "optimalMonths": [3, 4, 9, 10],
+        "shoulderMonths": [2],
+        "label": {
+          "en": "Mar – Apr (Spring Barley) or Sep – Oct (Winter Barley)",
+          "de": "März – April (Sommergerste) bzw. Sep. – Okt. (Wintergerste)"
+        }
+      },
+      "harvestWindow": {
+        "months": [6, 7],
+        "label": {
+          "en": "Late June – July",
+          "de": "Ende Juni – Juli"
+        }
+      },
+      "growingDurationDays": {
+        "min": 115,
+        "max": 285
+      },
+      "soilCompatibility": {
+        "Loamy": 92,
+        "Silty": 88,
+        "Sandy": 74,
+        "Clay": 72
+      },
+      "seasonalWaterMmHa": {
+        "totalDemandMin": 330,
+        "totalDemandOptimal": 410,
+        "typicalGermanSeasonRainMm": 345,
+        "supplementalIrrigationMin": 0,
+        "supplementalIrrigationOptimal": 35,
+        "waterloggingRainLimit": 640
+      },
+      "inputCostsEurPerHa": {
+        "seedAndPlanting": 145,
+        "fertilizerAndProtection": 365,
+        "machineryDryingAndIrrigation": 200,
+        "total": 710,
+        "classification": "illustrative_estimate"
+      },
+      "indicativeYieldTonsPerHa": {
+        "destatisNationalAvgTonsHa": 7.44,
+        "low": 5.4,
+        "base": 6.9,
+        "high": 8.1,
+        "classification": "verified_source"
+      },
+      "indicativeMarketPriceEurPerTon": {
+        "low": 175,
+        "base": 210,
+        "high": 255,
+        "classification": "illustrative_estimate"
+      },
+      "climateSensitivity": {
+        "heat": 0.42,
+        "frost": 0.34,
+        "drought": 0.32,
+        "excessRain": 0.68,
+        "optimalTempRangeC": [12, 25],
+        "heatStressThresholdC": 32,
+        "frostStressThresholdC": -8
+      },
+      "sources": {
+        "yieldStatistics": {
+          "sourceName": "Statistisches Bundesamt (Destatis) — Erntestatistik Gerste zusammen",
+          "sourceUrl": "https://www.destatis.de/DE/Themen/Branchen-Unternehmen/Landwirtschaft-Forstwirtschaft-Fischerei/Feldfruechte-Gruenland/_inhalt.html",
+          "publicationYear": "2025",
+          "retrievalDate": "2026-11-14",
+          "classification": "verified_source",
+          "note": {
+            "en": "Published German average barley yield: 74.4 dt/ha (7.44 t/ha) in 2025; 63.9 dt/ha in 2024 (combining winter and spring barley).",
+            "de": "Veröffentlichter bundesweiter Durchschnittsertrag Gerste: 74,4 dt/ha (7,44 t/ha) 2025; 63,9 dt/ha 2024 (Winter- und Sommergerste)."
+          }
+        },
+        "cultivationGuidance": {
+          "sourceName": "Bayerische Landesanstalt für Landwirtschaft (LfL) — Kulturanleitung Gerste",
+          "sourceUrl": "https://www.lfl.bayern.de/ipz/getreide/",
+          "publicationYear": "2025",
+          "retrievalDate": "2026-11-14",
+          "classification": "verified_source",
+          "note": {
+            "en": "Supports both early spring sowing (Sommergerste, Mar–Apr) and early autumn sowing (Wintergerste, Sep–Oct).",
+            "de": "Geeignet sowohl als Sommergerste (Aussaat März–April) als auch als Wintergerste (Aussaat September–Oktober)."
+          }
+        },
+        "economicAssumptions": {
+          "sourceName": "Illustrative planning estimate structured on LfL / LTZ variable cost categories",
+          "sourceUrl": "https://www.stmelf.bayern.de/idb/",
+          "publicationYear": "2025/2026",
+          "retrievalDate": "2026-11-14",
+          "classification": "illustrative_estimate",
+          "note": {
+            "en": "Lowest direct input outlay (€710/ha) among the four German arable benchmarks; malting quality commands top-end prices.",
+            "de": "Geringster Direktkostenaufwand (710 €/ha) unter den vier Ackerkulturen; Braugerstenqualität erzielt höhere Marktpreise."
+          }
+        }
+      },
+      "agronomicNotes": [
+        {
+          "en": "Early maturation escapes mid-summer July/August heatwaves and severe Upper Rhine late-summer soil drought.",
+          "de": "Frühe Abreife umgeht Hochsommer-Hitzewellen im Juli/August sowie ausgeprägte Spätsommertrockenheit am Oberrhein."
+        },
+        {
+          "en": "Sensitive to prolonged waterlogging and lodging under heavy convective storms.",
+          "de": "Empfindlich gegenüber Staunässe und Lagerneigung bei heftigen Starkregenereignissen."
+        }
+      ]
+    },
+    {
+      "id": "maize",
+      "name": "Maize",
+      "names": {
+        "en": "Maize",
+        "de": "Mais"
+      },
+      "scientificName": "Zea mays",
+      "category": {
+        "en": "Warm-Season Grain Maize (Körnermais)",
+        "de": "Körnermais (Wärmeliebende Sommerkultur)"
+      },
+      "applicableGermanRegions": {
+        "en": "Upper Rhine Valley (Karlsruhe, Freiburg), Lower Bavaria, Münsterland, Oderbruch",
+        "de": "Oberrheingraben (Karlsruhe, Freiburg), Niederbayern, Münsterland, Süddeutschland"
+      },
+      "recommendedSoilConditions": {
+        "en": "Warm, deep loamy and silty soils; performs well on irrigated sandy soils in the Upper Rhine graben.",
+        "de": "Erwärmbare, tiefgründige Lehm- und Schluffböden; auf leichten Standorten im Oberrheingraben mit Zusatzberegnung leistungsfähig."
+      },
+      "plantingWindow": {
+        "optimalMonths": [4, 5],
+        "shoulderMonths": [],
+        "label": {
+          "en": "April – May (soil temp ≥ 8–10°C)",
+          "de": "April – Mai (Bodentemperatur ≥ 8–10 °C)"
+        }
+      },
+      "harvestWindow": {
+        "months": [9, 10, 11],
+        "label": {
+          "en": "September – November",
+          "de": "September – November"
+        }
+      },
+      "growingDurationDays": {
+        "min": 140,
+        "max": 175
+      },
+      "soilCompatibility": {
+        "Loamy": 94,
+        "Silty": 90,
+        "Sandy": 68,
+        "Clay": 70
+      },
+      "seasonalWaterMmHa": {
+        "totalDemandMin": 470,
+        "totalDemandOptimal": 560,
+        "typicalGermanSeasonRainMm": 410,
+        "supplementalIrrigationMin": 60,
+        "supplementalIrrigationOptimal": 135,
+        "waterloggingRainLimit": 820
+      },
+      "inputCostsEurPerHa": {
+        "seedAndPlanting": 265,
+        "fertilizerAndProtection": 415,
+        "machineryDryingAndIrrigation": 500,
+        "total": 1180,
+        "classification": "illustrative_estimate"
+      },
+      "indicativeYieldTonsPerHa": {
+        "destatisNationalAvgTonsHa": 10.05,
+        "low": 7.6,
+        "base": 10.05,
+        "high": 12.2,
+        "classification": "verified_source"
+      },
+      "indicativeMarketPriceEurPerTon": {
+        "low": 190,
+        "base": 220,
+        "high": 255,
+        "classification": "illustrative_estimate"
+      },
+      "climateSensitivity": {
+        "heat": 0.46,
+        "frost": 0.88,
+        "drought": 0.64,
+        "excessRain": 0.44,
+        "optimalTempRangeC": [18, 30],
+        "heatStressThresholdC": 35,
+        "frostStressThresholdC": 2
+      },
+      "sources": {
+        "yieldStatistics": {
+          "sourceName": "Statistisches Bundesamt (Destatis) — Erntestatistik Körnermais inkl. CCM",
+          "sourceUrl": "https://www.destatis.de/DE/Themen/Branchen-Unternehmen/Landwirtschaft-Forstwirtschaft-Fischerei/Feldfruechte-Gruenland/_inhalt.html",
+          "publicationYear": "2025",
+          "retrievalDate": "2026-11-14",
+          "classification": "verified_source",
+          "note": {
+            "en": "Published German average grain maize yield: 100.9 dt/ha (10.09 t/ha) in 2025 and 100.5 dt/ha (10.05 t/ha) in 2024.",
+            "de": "Veröffentlichter bundesweiter Durchschnittsertrag Körnermais: 100,9 dt/ha (10,09 t/ha) 2025 und 100,5 dt/ha (10,05 t/ha) 2024."
+          }
+        },
+        "cultivationGuidance": {
+          "sourceName": "LTZ Augustenberg & LfL Bayern — Anbauhinweise Körnermais",
+          "sourceUrl": "https://ltz.landwirtschaft-bw.de",
+          "publicationYear": "2025",
+          "retrievalDate": "2026-11-14",
+          "classification": "verified_source",
+          "note": {
+            "en": "Upper Rhine Valley (Karlsruhe/Freiburg) provides high heat units (FAO 300–400) ideal for grain maize, provided summer silking moisture is secured.",
+            "de": "Der Oberrheingraben bietet hohe Wärmesummen für Körnermais, erfordert jedoch ausreichende Wasserversorgung zur Blüte im Juli."
+          }
+        },
+        "economicAssumptions": {
+          "sourceName": "Illustrative planning estimate including post-harvest grain drying (LfL cost model)",
+          "sourceUrl": "https://www.stmelf.bayern.de/idb/",
+          "publicationYear": "2025/2026",
+          "retrievalDate": "2026-11-14",
+          "classification": "illustrative_estimate",
+          "note": {
+            "en": "Includes illustrative drying and supplemental irrigation variable costs (€1,180/ha total).",
+            "de": "Enthält exemplarische Trocknungs- und Beregnungsdirektkosten (insgesamt 1.180 €/ha)."
+          }
+        }
+      },
+      "agronomicNotes": [
+        {
+          "en": "Thrives in warm Baden-Württemberg summers, but late spring frosts (Eisheiligen in May) severely injure emerged seedlings.",
+          "de": "Profitiert von warmen Sommern in Baden-Württemberg, reagiert jedoch im Jugendstadium empfindlich auf Spätfröste im Mai."
+        },
+        {
+          "en": "Moisture deficit during July tasseling/silking sharply reduces kernel set without supplemental irrigation.",
+          "de": "Wassermangel während der Rispenschiebe- und Blütephase im Juli führt ohne Zusatzberegnung zu deutlichen Kornertragsverlusten."
+        }
+      ]
+    },
+    {
+      "id": "potato",
+      "name": "Potato",
+      "names": {
+        "en": "Potato",
+        "de": "Kartoffel"
+      },
+      "scientificName": "Solanum tuberosum",
+      "category": {
+        "en": "High-Value Root & Tuber Crop (Speisekartoffel)",
+        "de": "Hackfrucht / Speisekartoffel"
+      },
+      "applicableGermanRegions": {
+        "en": "Lower Saxony (Lüneburger Heide), Upper Rhine Valley (Baden-Württemberg, Pfalz), Bavaria, Rhineland",
+        "de": "Niedersachsen (Lüneburger Heide), Oberrheingraben (Baden-Württemberg, Pfalz), Bayern, Rheinland"
+      },
+      "recommendedSoilConditions": {
+        "en": "Loose, stone-free sandy-loam and loamy soils allowing clean ridge formation and harvesting; heavy clay impedes tuber quality.",
+        "de": "Lockere, siebfähige, steinfreie Sandlehm- und Lehmböden für sauberen Dammaufbau; schwere Tonböden erschweren die Ernte erheblich."
+      },
+      "plantingWindow": {
+        "optimalMonths": [3, 4],
+        "shoulderMonths": [5],
+        "label": {
+          "en": "March – April (shoulder: early May)",
+          "de": "März – April (Randfenster: Anfang Mai)"
+        }
+      },
+      "harvestWindow": {
+        "months": [8, 9, 10],
+        "label": {
+          "en": "August – October",
+          "de": "August – Oktober"
+        }
+      },
+      "growingDurationDays": {
+        "min": 110,
+        "max": 155
+      },
+      "soilCompatibility": {
+        "Loamy": 94,
+        "Sandy": 88,
+        "Silty": 82,
+        "Clay": 42
+      },
+      "seasonalWaterMmHa": {
+        "totalDemandMin": 480,
+        "totalDemandOptimal": 570,
+        "typicalGermanSeasonRainMm": 370,
+        "supplementalIrrigationMin": 110,
+        "supplementalIrrigationOptimal": 185,
+        "waterloggingRainLimit": 610
+      },
+      "inputCostsEurPerHa": {
+        "seedAndPlanting": 1380,
+        "fertilizerAndProtection": 890,
+        "machineryDryingAndIrrigation": 880,
+        "total": 3150,
+        "classification": "illustrative_estimate"
+      },
+      "indicativeYieldTonsPerHa": {
+        "destatisNationalAvgTonsHa": 45.02,
+        "low": 33.0,
+        "base": 45.02,
+        "high": 53.0,
+        "classification": "verified_source"
+      },
+      "indicativeMarketPriceEurPerTon": {
+        "low": 175,
+        "base": 235,
+        "high": 300,
+        "classification": "illustrative_estimate"
+      },
+      "climateSensitivity": {
+        "heat": 0.78,
+        "frost": 0.86,
+        "drought": 0.82,
+        "excessRain": 0.84,
+        "optimalTempRangeC": [14, 24],
+        "heatStressThresholdC": 29,
+        "frostStressThresholdC": 1
+      },
+      "sources": {
+        "yieldStatistics": {
+          "sourceName": "Statistisches Bundesamt (Destatis) — Erntestatistik Kartoffeln",
+          "sourceUrl": "https://www.destatis.de/DE/Themen/Branchen-Unternehmen/Landwirtschaft-Forstwirtschaft-Fischerei/Feldfruechte-Gruenland/_inhalt.html",
+          "publicationYear": "2025",
+          "retrievalDate": "2026-11-14",
+          "classification": "verified_source",
+          "note": {
+            "en": "Published German average potato yield: 459.6 dt/ha (45.96 t/ha) in 2025 and 450.2 dt/ha (45.02 t/ha) in 2024.",
+            "de": "Veröffentlichter bundesweiter Durchschnittsertrag Kartoffeln: 459,6 dt/ha (45,96 t/ha) 2025 und 450,2 dt/ha (45,02 t/ha) 2024."
+          }
+        },
+        "cultivationGuidance": {
+          "sourceName": "LTZ Augustenberg & LfL Bayern — Kulturanleitung Kartoffeln",
+          "sourceUrl": "https://www.lfl.bayern.de/ipz/kartoffeln/",
+          "publicationYear": "2025",
+          "retrievalDate": "2026-11-14",
+          "classification": "verified_source",
+          "note": {
+            "en": "Shallow root system requires reliable supplemental irrigation (≥ 110 mm/ha = 1,100 m³/ha) for marketable ware quality.",
+            "de": "Flaches Wurzelsystem erfordert zuverlässige Zusatzberegnung (≥ 110 mm/ha = 1.100 m³/ha) zur Sicherung vermarktungsfähiger Qualitäten."
+          }
+        },
+        "economicAssumptions": {
+          "sourceName": "Illustrative variable cost & price benchmark aligned with LfL / BLE market structure",
+          "sourceUrl": "https://www.bmel-statistik.de",
+          "publicationYear": "2025/2026",
+          "retrievalDate": "2026-11-14",
+          "classification": "illustrative_estimate",
+          "note": {
+            "en": "High certified seed-tuber and crop-care capital requirement (€3,150/ha illustrative) paired with highest gross revenue per hectare.",
+            "de": "Hoher Kapitalbedarf für Pflanzgut, Pflege und Ernte (exemplarisch 3.150 €/ha) bei gleichzeitig höchstem Deckungsbeitragspotenzial."
+          }
+        }
+      },
+      "agronomicNotes": [
+        {
+          "en": "Highest revenue potential per hectare, but requires ~3.5× the working capital of cereals and dependable irrigation volume.",
+          "de": "Höchstes Erlöspotenzial je Hektar, erfordert jedoch rund das 3,5-Fache an Betriebskapital im Vergleich zu Getreide sowie gesicherte Beregnung."
+        },
+        {
+          "en": "Highly sensitive to >29°C tuber heat stress, May late frosts, and Phytophthora/waterlogging under heavy rainfall.",
+          "de": "Empfindlich gegenüber Hitze (>29 °C bei Knollenansatz), Spätfrost im Mai sowie Staunässe und Krautfäuledruck bei Starkregen."
+        }
+      ]
+    }
+  ],
+  "transparencyRegistry": [
+    {
+      "id": "dwd-icon-forecast",
+      "category": "live_weather",
+      "parameter": {
+        "en": "Near-Term Daily Temperature, Precipitation & FAO ET₀ Forecast",
+        "de": "Kurzfristige Tagesprognose für Temperatur, Niederschlag & FAO-ET₀"
+      },
+      "valueSummary": {
+        "en": "Live 7-day DWD ICON Seamless forecast retrieved dynamically per farm coordinates",
+        "de": "Dynamisch abgerufene 7-Tage-Prognose (DWD ICON Seamless) für die jeweiligen Betriebs-Koordinaten"
+      },
+      "unit": "°C, mm/d",
+      "sourceName": "Deutscher Wetterdienst (DWD ICON) via Open-Meteo API",
+      "sourceUrl": "https://open-meteo.com/en/docs/dwd-api",
+      "yearOrPeriod": "Live real-time (7–14 days)",
+      "classification": "verified_source",
+      "notes": {
+        "en": "Genuinely fetched at runtime for exact GPS coordinates in Europe/Berlin timezone. Strictly limited to near-term field conditions.",
+        "de": "Zur Laufzeit live für exakte GPS-Koordinaten abgerufen (Zeitzone Europe/Berlin). Gilt ausschließlich für das kurzfristige Bestellfenster."
+      }
+    },
+    {
+      "id": "destatis-yields",
+      "category": "published_statistics",
+      "parameter": {
+        "en": "German National Reference Crop Yields (Wheat, Barley, Grain Maize, Potato)",
+        "de": "Nationale Referenzerträge Deutschland (Winterweizen, Gerste, Körnermais, Kartoffeln)"
+      },
+      "valueSummary": {
+        "en": "Wheat 7.83 t/ha · Barley 7.44 t/ha · Maize 10.05 t/ha · Potato 45.02 t/ha",
+        "de": "Weizen 7,83 t/ha · Gerste 7,44 t/ha · Körnermais 10,05 t/ha · Kartoffeln 45,02 t/ha"
+      },
+      "unit": "t/ha (10 dt/ha = 1 t/ha)",
+      "sourceName": "Statistisches Bundesamt (Destatis) — Erntestatistik Feldfrüchte",
+      "sourceUrl": "https://www.destatis.de/DE/Themen/Branchen-Unternehmen/Landwirtschaft-Forstwirtschaft-Fischerei/Feldfruechte-Gruenland/_inhalt.html",
+      "yearOrPeriod": "2024–2025",
+      "classification": "verified_source",
+      "notes": {
+        "en": "Published Destatis national harvest averages; low/high bands represent regional soil and management spread.",
+        "de": "Veröffentlichte Bundesdurchschnitte der Destatis-Ernteermittlung; Unter-/Obergrenzen bilden Standortunterschiede ab."
+      }
+    },
+    {
+      "id": "lfl-ltz-cultivation",
+      "category": "published_statistics",
+      "parameter": {
+        "en": "German Sowing & Harvest Windows and Regional Soil Suitability",
+        "de": "Aussaat- und Erntefenster sowie regionale Standorteignung"
+      },
+      "valueSummary": {
+        "en": "Crop-specific German calendar windows (e.g. Oct–Nov Winter Wheat; Mar–May Spring Crops)",
+        "de": "Kulturspezifische Saat- und Erntezeiträume (z. B. Okt.–Nov. Winterweizen; März–Mai Sommerungen)"
+      },
+      "unit": "Calendar months (1–12)",
+      "sourceName": "LTZ Augustenberg (Baden-Württemberg) & LfL Bayern agronomic guidelines",
+      "sourceUrl": "https://ltz.landwirtschaft-bw.de",
+      "yearOrPeriod": "2024–2025",
+      "classification": "verified_source",
+      "notes": {
+        "en": "Standard German arable phenology windows used to enforce seasonal planting appropriateness.",
+        "de": "Pflanzenbauliche Saatzeitfenster für Süd- und Gesamtdeutschland zur Prüfung der saisonalen Anbaueignung."
+      }
+    },
+    {
+      "id": "illustrative-economics",
+      "category": "illustrative_economics",
+      "parameter": {
+        "en": "Variable Input Costs, Supplemental Irrigation Benchmarks & Producer Prices",
+        "de": "Variable Direktkosten, Zusatzbewässerungsrichtwerte & Erzeugerpreise"
+      },
+      "valueSummary": {
+        "en": "Costs: €710–€3,150/ha · Prices: €175–€300/t · Supplemental water: 0–185 mm/ha",
+        "de": "Direktkosten: 710–3.150 €/ha · Preise: 175–300 €/t · Zusatzwasser: 0–185 mm/ha"
+      },
+      "unit": "EUR/ha, EUR/t, m³/ha",
+      "sourceName": "AgroVera Illustrative Planning Model (structured on LfL / KTBL / BLE categories)",
+      "sourceUrl": "https://www.stmelf.bayern.de/idb/",
+      "yearOrPeriod": "2025/2026 Illustrative",
+      "classification": "illustrative_estimate",
+      "notes": {
+        "en": "Explicitly labeled illustrative estimates because live BLE commodity price feeds and farm-specific LfL input quotes are not connected via API.",
+        "de": "Ausdrücklich als exemplarische Schätzwerte gekennzeichnet, da keine Live-Marktpreis-API der BLE angebunden ist."
+      }
+    },
+    {
+      "id": "dwd-cdc-historical",
+      "category": "unavailable_dataset",
+      "parameter": {
+        "en": "30-Year Station-Level Historical Climate Normals & Soil Lab NPK/pH",
+        "de": "30-jährige stationsbezogene Klimareihen (DWD CDC) & Bodenproben (Nmin/pH)"
+      },
+      "valueSummary": {
+        "en": "Not connected in MVP — flagged under Missing Information",
+        "de": "Im Prototyp nicht live angebunden — als fehlende Ortsdaten ausgewiesen"
+      },
+      "unit": "N/A",
+      "sourceName": "DWD Climate Data Center (CDC) / On-Farm Soil Lab",
+      "sourceUrl": "https://cdc.dwd.de",
+      "yearOrPeriod": "Not integrated",
+      "classification": "missing",
+      "notes": {
+        "en": "AgroVera never fabricates historical station records or soil laboratory analyses; seasonal variability is explored via explicit hypothetical scenarios.",
+        "de": "AgroVera erfindet keine historischen Stationsmessreihen oder Bodenanalysen; saisonale Risiken werden über transparente Stresstests geprüft."
+      }
+    },
+    {
+      "id": "climate-scenarios-meta",
+      "category": "hypothetical_scenario",
+      "parameter": {
+        "en": "Seasonal Climate Stress Scenarios (Drought, Heatwave, Heavy Rain, Late Frost)",
+        "de": "Saisonale Klimastresstests (Trockenheit, Hitzewelle, Starkregen, Spätfrost)"
+      },
+      "valueSummary": {
+        "en": "User-editable stress multipliers (0.38×–1.65× seasonal rain; 0.94×–1.25× ET demand)",
+        "de": "Editierbare Stressfaktoren (0,38×–1,65× Saisonregen; 0,94×–1,25× Wasserbedarf)"
+      },
+      "unit": "Dimensionless multipliers",
+      "sourceName": "AgroVera Deterministic Stress-Test Engine",
+      "sourceUrl": "#scenarios",
+      "yearOrPeriod": "Hypothetical planning horizon",
+      "classification": "illustrative_estimate",
+      "notes": {
+        "en": "Hypothetical seasonal sensitivity tests, never presented as weather forecasts or disaster probabilities.",
+        "de": "Hypothetische Stresstests zur Robustheitsprüfung, keine Wettervorhersagen oder Eintrittswahrscheinlichkeiten."
+      }
+    },
+    {
+      "id": "gemini-carbon-meta",
+      "category": "ai_interpretation",
+      "parameter": {
+        "en": "Bilingual Trade-off Synthesis & Independent Adversarial Criticism",
+        "de": "Zweisprachige Abwägungssynthese & unabhängige KI-Gegenprüfung"
+      },
+      "valueSummary": {
+        "en": "Decision Agent (gemini-4-carbon) + Independent Critic Agent (gemini-4-carbon)",
+        "de": "Entscheidungs-Agent (gemini-4-carbon) + Unabhängiger Prüf-Agent (gemini-4-carbon)"
+      },
+      "unit": "Structured JSON",
+      "sourceName": "Google Gemini API (Server-Side)",
+      "sourceUrl": "https://ai.google.dev",
+      "yearOrPeriod": "Runtime invocation",
+      "classification": "illustrative_estimate",
+      "notes": {
+        "en": "AI agents interpret verified deterministic numbers without modifying scores or rankings, gated by deterministic code checks.",
+        "de": "KI-Agenten interpretieren ausschließlich die deterministischen Rechenergebnisse ohne Zahlen zu verändern; abgesichert durch Code-Validierung."
+      }
+    }
+  ]
+}

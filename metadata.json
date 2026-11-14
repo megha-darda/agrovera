@@ -1,0 +1,8 @@
+{
+  "name": "AgroVera",
+  "description": "AI-powered agricultural intelligence and verified crop decisions for German farming — bilingual English/German platform with live weather, crop simulation, and independent Gemini Carbon verification.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
