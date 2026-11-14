@@ -32,13 +32,15 @@ export type ClimateScenarioId =
   | 'frost';
 
 export type NavigationTab =
+  | 'home'
   | 'overview'
   | 'farm-setup'
   | 'climate'
   | 'simulator'
   | 'decision-center'
   | 'scenarios'
-  | 'data-sources';
+  | 'data-sources'
+  | 'timeline';
 
 export interface PreferenceWeights {
   profit: number;

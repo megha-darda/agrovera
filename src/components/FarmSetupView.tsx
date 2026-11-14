@@ -38,6 +38,7 @@ import { formatNumber, pickBilingual } from '../utils/formatters.ts';
 interface FarmSetupViewProps {
   farm: FarmProfile;
   onUpdateFarm: (updated: FarmProfile) => void;
+  onSaveAndViewResults?: () => void;
   onRunEvaluation: (overrideFarm?: FarmProfile) => void;
   isEvaluating: boolean;
 }
@@ -45,6 +46,7 @@ interface FarmSetupViewProps {
 export const FarmSetupView: React.FC<FarmSetupViewProps> = ({
   farm,
   onUpdateFarm,
+  onSaveAndViewResults,
   onRunEvaluation,
   isEvaluating,
 }) => {
@@ -163,6 +165,8 @@ export const FarmSetupView: React.FC<FarmSetupViewProps> = ({
     setSaveBanner(t('farmSetup.savedBanner'));
     if (runAgentsAfterSave) {
       onRunEvaluation(draft);
+    } else if (onSaveAndViewResults) {
+      onSaveAndViewResults();
     }
   };
 
@@ -720,131 +724,131 @@ export const FarmSetupView: React.FC<FarmSetupViewProps> = ({
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
-              onClick={() => handleSaveProfile(false)}
-              disabled={!validation.valid}
-              className="px-4 py-2.5 rounded-lg border border-stone-300 bg-white hover:bg-stone-50 disabled:opacity-50 text-xs sm:text-sm font-medium text-stone-900 whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              {t('farmSetup.updateSimBtn')}
-            </button>
-            <button
-              type="button"
               onClick={() => handleSaveProfile(true)}
               disabled={!validation.valid || isEvaluating}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#0F291E] hover:bg-[#163B2B] disabled:opacity-50 text-white text-xs sm:text-sm font-medium whitespace-nowrap shrink-0 cursor-pointer"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-stone-300 bg-white hover:bg-stone-50 disabled:opacity-50 text-xs sm:text-sm font-medium text-stone-800 whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Play className="w-4 h-4" />
               {isEvaluating
                 ? t('overview.runningBtn')
                 : t('farmSetup.saveAndRunBtn')}
             </button>
+            <button
+              type="button"
+              onClick={() => handleSaveProfile(false)}
+              disabled={!validation.valid}
+              className="px-4 py-2.5 rounded-lg bg-[#0F291E] hover:bg-[#163B2B] disabled:opacity-50 text-white text-xs sm:text-sm font-semibold whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              {t('farmSetup.updateSimBtn')}
+            </button>
           </div>
         </div>
       </section>
 
-      {/* Transparent German Crop Knowledge Base Inspector */}
-      <section className="bg-white border border-stone-200/90 rounded-xl p-6">
-        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-4">
-          <div className="flex items-center gap-2">
+      {/* Collapsible German Crop Knowledge Base Inspector (Secondary Technical Reference) */}
+      <details className="bg-white border border-stone-200/90 rounded-xl p-5">
+        <summary className="flex flex-wrap items-center justify-between gap-2 cursor-pointer select-none text-sm font-bold text-[#0F291E]">
+          <span className="inline-flex items-center gap-2">
             <BookOpen className="w-4 h-4 text-emerald-800 shrink-0" />
-            <h2 className="text-base font-bold text-[#0F291E]">
-              {t('farmSetup.kbTitle')}
-            </h2>
-          </div>
-          <span className="text-xs text-stone-500">
+            {t('farmSetup.kbTitle')}
+          </span>
+          <span className="text-xs font-normal text-stone-500">
             {t('farmSetup.kbSourceTag', { version: CROP_DATABASE.version })}
           </span>
-        </div>
+        </summary>
 
-        <p className="text-xs text-stone-600 mb-4 leading-relaxed">
-          {pickBilingual(CROP_DATABASE.illustrativeDisclaimer, lang)}
-        </p>
+        <div className="mt-4">
+          <p className="text-xs text-stone-600 mb-4 leading-relaxed">
+            {pickBilingual(CROP_DATABASE.illustrativeDisclaimer, lang)}
+          </p>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="border-b border-stone-200 text-stone-500">
-                <th className="py-2.5 pr-4 font-semibold">
-                  {t('farmSetup.colCrop')}
-                </th>
-                <th className="py-2.5 px-3 font-semibold">
-                  {t('farmSetup.colWindow')}
-                </th>
-                <th className="py-2.5 px-3 font-semibold text-right">
-                  {t('farmSetup.colWater')}
-                </th>
-                <th className="py-2.5 px-3 font-semibold text-right">
-                  {t('farmSetup.colCost')}
-                </th>
-                <th className="py-2.5 px-3 font-semibold text-right">
-                  {t('farmSetup.colYield')}
-                </th>
-                <th className="py-2.5 px-3 font-semibold text-right">
-                  {t('farmSetup.colPrice')}
-                </th>
-                <th className="py-2.5 pl-3 font-semibold">
-                  {t('farmSetup.colSoil')}
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-stone-100">
-              {CROP_DATABASE.crops.map((crop) => (
-                <tr key={crop.id} className="hover:bg-stone-50/70">
-                  <td className="py-3 pr-4">
-                    <div className="font-semibold text-stone-900">
-                      {pickBilingual(crop.names, lang)}
-                    </div>
-                    <div className="text-[11px] italic text-stone-500">
-                      {crop.scientificName}
-                    </div>
-                  </td>
-                  <td className="py-3 px-3 text-stone-700">
-                    {pickBilingual(crop.plantingWindow.label, lang)}
-                  </td>
-                  <td className="py-3 px-3 text-right font-mono tabular-nums text-stone-700">
-                    {crop.seasonalWaterMmHa.totalDemandMin}–
-                    {crop.seasonalWaterMmHa.totalDemandOptimal} /{' '}
-                    {crop.seasonalWaterMmHa.typicalGermanSeasonRainMm}
-                  </td>
-                  <td className="py-3 px-3 text-right font-mono tabular-nums text-stone-700">
-                    {formatNumber(crop.inputCostsEurPerHa.total, lang, 0)} €
-                  </td>
-                  <td className="py-3 px-3 text-right font-mono tabular-nums text-stone-700">
-                    <span className="font-semibold text-emerald-800">
-                      {formatNumber(
-                        crop.indicativeYieldTonsPerHa.destatisNationalAvgTonsHa,
-                        lang,
-                        2
-                      )}
-                    </span>{' '}
-                    ({formatNumber(crop.indicativeYieldTonsPerHa.low, lang, 1)}–
-                    {formatNumber(crop.indicativeYieldTonsPerHa.high, lang, 1)})
-                  </td>
-                  <td className="py-3 px-3 text-right font-mono tabular-nums text-stone-700">
-                    {formatNumber(
-                      crop.indicativeMarketPriceEurPerTon.low,
-                      lang,
-                      0
-                    )}
-                    –
-                    {formatNumber(
-                      crop.indicativeMarketPriceEurPerTon.high,
-                      lang,
-                      0
-                    )}{' '}
-                    €
-                  </td>
-                  <td className="py-3 pl-3 font-mono tabular-nums text-stone-600">
-                    {crop.soilCompatibility.Loamy} /{' '}
-                    {crop.soilCompatibility.Sandy} /{' '}
-                    {crop.soilCompatibility.Clay} /{' '}
-                    {crop.soilCompatibility.Silty}
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-stone-200 text-stone-500">
+                  <th className="py-2.5 pr-4 font-semibold">
+                    {t('farmSetup.colCrop')}
+                  </th>
+                  <th className="py-2.5 px-3 font-semibold">
+                    {t('farmSetup.colWindow')}
+                  </th>
+                  <th className="py-2.5 px-3 font-semibold text-right">
+                    {t('farmSetup.colWater')}
+                  </th>
+                  <th className="py-2.5 px-3 font-semibold text-right">
+                    {t('farmSetup.colCost')}
+                  </th>
+                  <th className="py-2.5 px-3 font-semibold text-right">
+                    {t('farmSetup.colYield')}
+                  </th>
+                  <th className="py-2.5 px-3 font-semibold text-right">
+                    {t('farmSetup.colPrice')}
+                  </th>
+                  <th className="py-2.5 pl-3 font-semibold">
+                    {t('farmSetup.colSoil')}
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {CROP_DATABASE.crops.map((crop) => (
+                  <tr key={crop.id} className="hover:bg-stone-50/70">
+                    <td className="py-3 pr-4">
+                      <div className="font-semibold text-stone-900">
+                        {pickBilingual(crop.names, lang)}
+                      </div>
+                      <div className="text-[11px] italic text-stone-500">
+                        {crop.scientificName}
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 text-stone-700">
+                      {pickBilingual(crop.plantingWindow.label, lang)}
+                    </td>
+                    <td className="py-3 px-3 text-right font-mono tabular-nums text-stone-700">
+                      {crop.seasonalWaterMmHa.totalDemandMin}–
+                      {crop.seasonalWaterMmHa.totalDemandOptimal} /{' '}
+                      {crop.seasonalWaterMmHa.typicalGermanSeasonRainMm}
+                    </td>
+                    <td className="py-3 px-3 text-right font-mono tabular-nums text-stone-700">
+                      {formatNumber(crop.inputCostsEurPerHa.total, lang, 0)} €
+                    </td>
+                    <td className="py-3 px-3 text-right font-mono tabular-nums text-stone-700">
+                      <span className="font-semibold text-emerald-800">
+                        {formatNumber(
+                          crop.indicativeYieldTonsPerHa.destatisNationalAvgTonsHa,
+                          lang,
+                          2
+                        )}
+                      </span>{' '}
+                      ({formatNumber(crop.indicativeYieldTonsPerHa.low, lang, 1)}–
+                      {formatNumber(crop.indicativeYieldTonsPerHa.high, lang, 1)})
+                    </td>
+                    <td className="py-3 px-3 text-right font-mono tabular-nums text-stone-700">
+                      {formatNumber(
+                        crop.indicativeMarketPriceEurPerTon.low,
+                        lang,
+                        0
+                      )}
+                      –
+                      {formatNumber(
+                        crop.indicativeMarketPriceEurPerTon.high,
+                        lang,
+                        0
+                      )}{' '}
+                      €
+                    </td>
+                    <td className="py-3 pl-3 font-mono tabular-nums text-stone-600">
+                      {crop.soilCompatibility.Loamy} /{' '}
+                      {crop.soilCompatibility.Sandy} /{' '}
+                      {crop.soilCompatibility.Clay} /{' '}
+                      {crop.soilCompatibility.Silty}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </section>
+      </details>
     </div>
   );
 };

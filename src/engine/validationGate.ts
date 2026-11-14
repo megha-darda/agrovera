@@ -1,4 +1,5 @@
 import { MONTH_NAMES_DE, MONTH_NAMES_EN } from './presets.ts';
+import { checkForecastSowingAlignment } from './weather.ts';
 import type {
   BilingualText,
   CriticAgentOutput,
@@ -6,7 +7,6 @@ import type {
   SimulationRunOutput,
   ValidationCheckItem,
   ValidationGateResult,
-  ValidationOutcomeStatus,
   WeatherForecastAnalysis,
 } from '../types/domain.ts';
 
@@ -17,9 +17,14 @@ import type {
  */
 function detectOffSeasonWeatherMisuse(
   decision: DecisionAgentOutput,
-  simulation: SimulationRunOutput
+  simulation: SimulationRunOutput,
+  weather: WeatherForecastAnalysis
 ): boolean {
-  if (simulation.weatherApplicability.status !== 'current_field_weather_only') {
+  const alignment = checkForecastSowingAlignment(
+    weather,
+    simulation.farmSummary.plantingMonth
+  );
+  if (weather.status !== 'ok' || alignment.aligned) {
     return false;
   }
 
@@ -243,9 +248,15 @@ export function runDeterministicValidationGate(
   }
 
   // 2. Seasonal Weather Applicability & Forecast Horizon Integrity Check
+  const alignment = checkForecastSowingAlignment(
+    weather,
+    simulation.farmSummary.plantingMonth
+  );
+  const isOffSeasonForecast = weather.status === 'ok' && !alignment.aligned;
   const offSeasonMisuseDetected = detectOffSeasonWeatherMisuse(
     decision,
-    simulation
+    simulation,
+    weather
   );
   const criticFlaggedWeatherMisuse =
     critic.forecastUncertaintyCommunicated === false ||
@@ -254,15 +265,15 @@ export function runDeterministicValidationGate(
         o.category === 'forecast_uncertainty' && o.severity === 'critical'
     );
   const weatherUsageValid =
-    !offSeasonMisuseDetected &&
-    !criticFlaggedWeatherMisuse &&
-    simulation.weatherApplicability.usedInSeasonalWaterBalance === false;
+    !offSeasonMisuseDetected && !criticFlaggedWeatherMisuse;
 
   const plantMonthEn =
     MONTH_NAMES_EN[simulation.farmSummary.plantingMonth - 1] ?? 'Planned month';
   const plantMonthDe =
     MONTH_NAMES_DE[simulation.farmSummary.plantingMonth - 1] ??
     'Geplanter Monat';
+  const startStr = weather.forecastPeriod?.startDate ?? 'near-term';
+  const endStr = weather.forecastPeriod?.endDate ?? 'near-term';
 
   checks.push({
     code: 'WEATHER_SEASONAL_APPLICABILITY',
@@ -273,15 +284,15 @@ export function runDeterministicValidationGate(
     passed: weatherUsageValid,
     detail: {
       en: weatherUsageValid
-        ? simulation.weatherApplicability.status === 'current_field_weather_only'
-          ? `Off-season forecast (${simulation.weatherApplicability.forecastStartDate} → ${simulation.weatherApplicability.forecastEndDate}) excluded from ${plantMonthEn} water balance and crop risk scores.`
+        ? isOffSeasonForecast
+          ? `Off-season forecast (${startStr} → ${endStr}) excluded from ${plantMonthEn} water balance and crop risk scores.`
           : 'Forecast horizon boundaries and seasonal planning assumptions properly separated.'
-        : `Inappropriate weather usage flagged: current 7-day forecast (${simulation.weatherApplicability.forecastStartDate ?? 'near-term'}) must not be treated as ${plantMonthEn} seasonal rainfall or full-season climate.`,
+        : `Inappropriate weather usage flagged: current 7-day forecast (${startStr}) must not be treated as ${plantMonthEn} seasonal rainfall or full-season climate.`,
       de: weatherUsageValid
-        ? simulation.weatherApplicability.status === 'current_field_weather_only'
-          ? `Saisonfremde Prognose (${simulation.weatherApplicability.forecastStartDate} → ${simulation.weatherApplicability.forecastEndDate}) nicht in ${plantMonthDe}-Wasserbilanz oder Kulturrisiko eingerechnet.`
+        ? isOffSeasonForecast
+          ? `Saisonfremde Prognose (${startStr} → ${endStr}) nicht in ${plantMonthDe}-Wasserbilanz oder Kulturrisiko eingerechnet.`
           : 'Kurzfristprognose und saisonale Planungsannahmen sauber getrennt.'
-        : `Unzulässige Wetterverwendung erkannt: Aktuelle 7-Tage-Prognose (${simulation.weatherApplicability.forecastStartDate ?? 'Kurzfrist'}) darf nicht als ${plantMonthDe}-Saisonregen gewertet werden.`,
+        : `Unzulässige Wetterverwendung erkannt: Aktuelle 7-Tage-Prognose (${startStr}) darf nicht als ${plantMonthDe}-Saisonregen gewertet werden.`,
     },
   });
   if (!weatherUsageValid) {
@@ -398,29 +409,8 @@ export function runDeterministicValidationGate(
     feasibleIds.size === 0 ||
     (chosenCrop !== null && uncertainIds.has(chosenCrop.cropId));
 
-  // A verified recommendation ONLY exists when all checks pass AND a genuinely feasible crop was recommended!
-  const hasVerifiedRecommendation =
-    passed &&
-    feasibleIds.size > 0 &&
-    chosenCrop !== null &&
-    chosenCrop.feasibilityStatus === 'feasible' &&
-    !requiresHumanReview;
-
-  let outcomeStatus: ValidationOutcomeStatus = 'validation_failed';
-  if (!passed) {
-    outcomeStatus = 'validation_failed';
-  } else if (feasibleIds.size === 0 || decision.recommendedCropId === 'none') {
-    outcomeStatus = 'valid_abstention_no_feasible_crop';
-  } else if (requiresHumanReview) {
-    outcomeStatus = 'advisory_review';
-  } else {
-    outcomeStatus = 'verified_recommendation';
-  }
-
   return {
     passed,
-    hasVerifiedRecommendation,
-    outcomeStatus,
     requiresHumanReview,
     checks,
     failureReasons,

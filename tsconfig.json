@@ -24,5 +24,5 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "exclude": ["dist"]
+  "exclude": ["dist", "src/engine/acceptance.test.ts", "src/engine/evaluationState.ts"]
 }

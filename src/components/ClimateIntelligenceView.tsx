@@ -216,116 +216,119 @@ export const ClimateIntelligenceView: React.FC<
         </section>
       )}
 
-      {/* Configurable DWD Risk Thresholds */}
-      <section className="bg-white border border-stone-200/90 rounded-xl p-6">
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-          <div className="flex items-center gap-2">
-            <Sliders className="w-4 h-4 text-emerald-800" />
-            <h2 className="text-base font-bold text-[#0F291E]">
-              {t('climate.thresholdsTitle')}
-            </h2>
+      {/* Collapsible Configurable DWD Risk Thresholds (Hidden by default) */}
+      <details className="bg-white border border-stone-200/90 rounded-xl p-5">
+        <summary className="flex flex-wrap items-center justify-between gap-2 cursor-pointer select-none text-sm font-bold text-[#0F291E]">
+          <span className="inline-flex items-center gap-2">
+            <Sliders className="w-4 h-4 text-emerald-800 shrink-0" />
+            {t('climate.thresholdsTitle')}
+          </span>
+        </summary>
+
+        <div className="mt-4 space-y-4">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => onUpdateThresholds(DEFAULT_WEATHER_THRESHOLDS)}
+              className="text-xs font-medium text-stone-600 hover:text-stone-900 underline cursor-pointer"
+            >
+              {t('climate.resetThresholdsBtn')}
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => onUpdateThresholds(DEFAULT_WEATHER_THRESHOLDS)}
-            className="text-xs font-medium text-stone-600 hover:text-stone-900 underline cursor-pointer"
-          >
-            {t('climate.resetThresholdsBtn')}
-          </button>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            <div>
+              <label
+                htmlFor="thresh-heat"
+                className="block text-xs font-medium text-stone-700 mb-1"
+              >
+                {t('climate.threshHeat')}
+              </label>
+              <input
+                id="thresh-heat"
+                type="number"
+                step="1"
+                value={thresholds.heatDayMaxTempC}
+                onChange={(e) =>
+                  onUpdateThresholds({
+                    ...thresholds,
+                    heatDayMaxTempC: Number(e.target.value),
+                  })
+                }
+                className="w-full px-3 py-1.5 rounded-lg border border-stone-300 text-sm font-mono tabular-nums"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="thresh-frost"
+                className="block text-xs font-medium text-stone-700 mb-1"
+              >
+                {t('climate.threshFrost')}
+              </label>
+              <input
+                id="thresh-frost"
+                type="number"
+                step="1"
+                value={thresholds.frostDayMinTempC}
+                onChange={(e) =>
+                  onUpdateThresholds({
+                    ...thresholds,
+                    frostDayMinTempC: Number(e.target.value),
+                  })
+                }
+                className="w-full px-3 py-1.5 rounded-lg border border-stone-300 text-sm font-mono tabular-nums"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="thresh-dry"
+                className="block text-xs font-medium text-stone-700 mb-1"
+              >
+                {t('climate.threshDry')}
+              </label>
+              <input
+                id="thresh-dry"
+                type="number"
+                min="0"
+                step="2"
+                value={thresholds.dryWindowTotalPrecipMm}
+                onChange={(e) =>
+                  onUpdateThresholds({
+                    ...thresholds,
+                    dryWindowTotalPrecipMm: Number(e.target.value),
+                  })
+                }
+                className="w-full px-3 py-1.5 rounded-lg border border-stone-300 text-sm font-mono tabular-nums"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="thresh-rain"
+                className="block text-xs font-medium text-stone-700 mb-1"
+              >
+                {t('climate.threshRain')}
+              </label>
+              <input
+                id="thresh-rain"
+                type="number"
+                min="5"
+                step="5"
+                value={thresholds.heavyRainDailyMm}
+                onChange={(e) =>
+                  onUpdateThresholds({
+                    ...thresholds,
+                    heavyRainDailyMm: Number(e.target.value),
+                  })
+                }
+                className="w-full px-3 py-1.5 rounded-lg border border-stone-300 text-sm font-mono tabular-nums"
+              />
+            </div>
+          </div>
         </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-          <div>
-            <label
-              htmlFor="thresh-heat"
-              className="block text-xs font-medium text-stone-700 mb-1"
-            >
-              {t('climate.threshHeat')}
-            </label>
-            <input
-              id="thresh-heat"
-              type="number"
-              step="1"
-              value={thresholds.heatDayMaxTempC}
-              onChange={(e) =>
-                onUpdateThresholds({
-                  ...thresholds,
-                  heatDayMaxTempC: Number(e.target.value),
-                })
-              }
-              className="w-full px-3 py-1.5 rounded-lg border border-stone-300 text-sm font-mono tabular-nums"
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="thresh-frost"
-              className="block text-xs font-medium text-stone-700 mb-1"
-            >
-              {t('climate.threshFrost')}
-            </label>
-            <input
-              id="thresh-frost"
-              type="number"
-              step="1"
-              value={thresholds.frostDayMinTempC}
-              onChange={(e) =>
-                onUpdateThresholds({
-                  ...thresholds,
-                  frostDayMinTempC: Number(e.target.value),
-                })
-              }
-              className="w-full px-3 py-1.5 rounded-lg border border-stone-300 text-sm font-mono tabular-nums"
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="thresh-dry"
-              className="block text-xs font-medium text-stone-700 mb-1"
-            >
-              {t('climate.threshDry')}
-            </label>
-            <input
-              id="thresh-dry"
-              type="number"
-              min="0"
-              step="2"
-              value={thresholds.dryWindowTotalPrecipMm}
-              onChange={(e) =>
-                onUpdateThresholds({
-                  ...thresholds,
-                  dryWindowTotalPrecipMm: Number(e.target.value),
-                })
-              }
-              className="w-full px-3 py-1.5 rounded-lg border border-stone-300 text-sm font-mono tabular-nums"
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="thresh-rain"
-              className="block text-xs font-medium text-stone-700 mb-1"
-            >
-              {t('climate.threshRain')}
-            </label>
-            <input
-              id="thresh-rain"
-              type="number"
-              min="5"
-              step="5"
-              value={thresholds.heavyRainDailyMm}
-              onChange={(e) =>
-                onUpdateThresholds({
-                  ...thresholds,
-                  heavyRainDailyMm: Number(e.target.value),
-                })
-              }
-              className="w-full px-3 py-1.5 rounded-lg border border-stone-300 text-sm font-mono tabular-nums"
-            />
-          </div>
-        </div>
-      </section>
+      </details>
 
       {/* Four Climate-Risk Evaluation Cards */}
       {weather && weather.status === 'ok' && (

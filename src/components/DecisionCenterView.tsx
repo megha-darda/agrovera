@@ -25,6 +25,7 @@ interface DecisionCenterViewProps {
   staleEvaluation?: AgenticEvaluationResponse | null;
   isEvaluating: boolean;
   elapsedSeconds?: number;
+  focusTimeline?: boolean;
   onRunEvaluation: () => void;
 }
 
@@ -33,10 +34,18 @@ export const DecisionCenterView: React.FC<DecisionCenterViewProps> = ({
   staleEvaluation = null,
   isEvaluating,
   elapsedSeconds = 0,
+  focusTimeline = false,
   onRunEvaluation,
 }) => {
   const { t, i18n } = useTranslation();
   const lang: AppLanguage = i18n.language === 'de' ? 'de' : 'en';
+
+  React.useEffect(() => {
+    if (focusTimeline && evaluation) {
+      const el = document.getElementById('agent-execution-timeline');
+      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [evaluation, focusTimeline]);
 
   const isLangMismatch =
     Boolean(evaluation) && evaluation?.language !== lang;
@@ -489,18 +498,20 @@ export const DecisionCenterView: React.FC<DecisionCenterViewProps> = ({
             </div>
           </section>
 
-          {/* Visual Explainable Agent Activity Timeline */}
-          <section
+          {/* Collapsible Explainable Agent Execution Timeline (Open when accessed via Advanced Details -> Full Agent Execution Timeline) */}
+          <details
+            id="agent-execution-timeline"
+            open={Boolean(focusTimeline)}
             className="bg-white border border-stone-200/90 rounded-xl p-6"
             data-testid="agent-activity-timeline"
           >
-            <div className="flex flex-wrap items-baseline justify-between gap-2 mb-5">
+            <summary className="flex flex-wrap items-baseline justify-between gap-2 cursor-pointer select-none">
               <div>
-                <h2 className="text-base font-bold text-[#0F291E]">
+                <span className="text-base font-bold text-[#0F291E]">
                   {t('decisionCenter.timelineTitle', {
                     count: evaluation.timeline.length,
                   })}
-                </h2>
+                </span>
                 <p className="text-xs text-stone-500 mt-0.5">
                   {t('decisionCenter.timelineSub')}
                 </p>
@@ -508,9 +519,9 @@ export const DecisionCenterView: React.FC<DecisionCenterViewProps> = ({
               <span className="text-xs font-mono tabular-nums text-stone-500">
                 {t('decisionCenter.runIdLabel', { id: evaluation.runId })}
               </span>
-            </div>
+            </summary>
 
-            <ol className="relative border-l border-stone-200 ml-3 space-y-5">
+            <ol className="relative border-l border-stone-200 ml-3 mt-5 space-y-5">
               {evaluation.timeline.map((ev) => (
                 <li key={ev.id} className="ml-5">
                   <span
@@ -547,7 +558,7 @@ export const DecisionCenterView: React.FC<DecisionCenterViewProps> = ({
                 </li>
               ))}
             </ol>
-          </section>
+          </details>
         </>
       )}
     </div>
