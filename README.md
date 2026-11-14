@@ -1,5 +1,7 @@
 # AgroVera
 
+**🌐 Live demo: [https://agrovera.ai.studio/](https://agrovera.ai.studio/)**
+
 **Smarter Farming. Verified Decisions.**
 **Intelligenter Anbau. Geprüfte Entscheidungen.**
 
@@ -12,7 +14,7 @@ It combines four things:
 3. **Published reference data**: Destatis national yield averages, plus LTZ Augustenberg / LfL Bayern agronomic guidance.
 4. A **server-side multi-agent pipeline** on Google Gemini. An Orchestrator calls the simulator as a tool, a Decision Agent writes the recommendation, and an independent Critic Agent audits it. A **deterministic validation gate** then has the final say, so an LLM can never push through a crop that the numbers rule out.
 
-> Built for the **KAIRA Agentic Hackathon**.
+> Built for the **{Tech: Europe} Agentic AI Hack**.
 
 ---
 
